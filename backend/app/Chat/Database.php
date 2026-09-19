@@ -54,21 +54,46 @@ class Database
      *
      * @throws \Exception if an unsupported database type is provided or the connection fails
      */
-    public function __construct($host, $dbName, $username = null, $password = null, int $port = 3306)
-    {
-        $dsn = "mysql:host=$host;port=$port;dbname=$dbName";
-        try {
-            $this->pdo = new \PDO($dsn, $username, $password);
-            $this->pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
-        } catch (\PDOException $e) {
-            throw new \Exception('Connection failed: ' . $e->getMessage());
+public function __construct($host, $dbName, $username = null, $password = null, int $port = 3306)
+{
+    $dsn = "mysql:host=$host;port=$port;dbname=$dbName;charset=utf8mb4";
+
+    try {
+        $options = [
+            \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+        ];
+
+        $sslEnabled = filter_var(
+            $_ENV['DATABASE_SSL'] ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        if ($sslEnabled) {
+            $caPath = $_ENV['DATABASE_SSL_CA'] ?? '/var/www/html/ca.pem';
+
+            if (!is_readable($caPath)) {
+                throw new \Exception('MySQL CA certificate not found: ' . $caPath);
+            }
+
+            $options[\PDO::MYSQL_ATTR_SSL_CA] = $caPath;
         }
 
-        $this->host = $host;
-        $this->dbName = $dbName;
-        $this->username = $username;
-        $this->password = $password;
-        $this->port = $port;
+        $this->pdo = new \PDO(
+            $dsn,
+            $username,
+            $password,
+            $options
+        );
+    } catch (\PDOException $e) {
+        throw new \Exception('Connection failed: ' . $e->getMessage());
+    }
+
+    $this->host = $host;
+    $this->dbName = $dbName;
+    $this->username = $username;
+    $this->password = $password;
+    $this->port = $port;
+}
     }
 
     public function getPdo(): \PDO
@@ -76,9 +101,52 @@ class Database
         return $this->pdo;
     }
 
-    public function getMysqli(): \mysqli
-    {
-        return new \mysqli($this->host, $this->username, $this->password, $this->dbName);
+public function getMysqli(): \mysqli
+{
+    $mysqli = mysqli_init();
+
+    if ($mysqli === false) {
+        throw new \Exception('Failed to initialize MySQLi');
+    }
+
+    $sslEnabled = filter_var(
+        $_ENV['DATABASE_SSL'] ?? false,
+        FILTER_VALIDATE_BOOLEAN
+    );
+
+    $flags = 0;
+
+    if ($sslEnabled) {
+        $caPath = $_ENV['DATABASE_SSL_CA'] ?? '/var/www/html/ca.pem';
+
+        if (!is_readable($caPath)) {
+            throw new \Exception('MySQL CA certificate not found: ' . $caPath);
+        }
+
+        $mysqli->ssl_set(
+            null,
+            null,
+            $caPath,
+            null,
+            null
+        );
+
+        $flags = MYSQLI_CLIENT_SSL;
+    }
+
+    if (!$mysqli->real_connect(
+        $this->host,
+        $this->username,
+        $this->password,
+        $this->dbName,
+        $this->port,
+        null,
+        $flags
+    )) {
+        throw new \Exception('MySQLi connection failed: ' . $mysqli->connect_error);
+    }
+
+    return $mysqli;
     }
 
     /**
