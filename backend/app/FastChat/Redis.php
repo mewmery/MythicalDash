@@ -42,16 +42,44 @@ class Redis
     {
         $app = App::getInstance(true);
         $app->loadEnv();
-        if (isset($_ENV['REDIS_HOST']) && isset($_ENV['REDIS_PASSWORD'])) {
-            $host = $_ENV['REDIS_HOST'] ?? 'localhost';
-            $pwd = $_ENV['REDIS_PASSWORD'] ?? '';
-            $client = new Client([
-                'scheme' => 'tcp',
+
+        if (
+            isset($_ENV['REDIS_HOST']) &&
+            isset($_ENV['REDIS_PORT']) &&
+            isset($_ENV['REDIS_USER']) &&
+            isset($_ENV['REDIS_PASSWORD'])
+        ) {
+            $host = $_ENV['REDIS_HOST'];
+            $port = (int) $_ENV['REDIS_PORT'];
+            $username = $_ENV['REDIS_USER'];
+            $password = $_ENV['REDIS_PASSWORD'];
+
+            $tlsEnabled = filter_var(
+                $_ENV['REDIS_TLS'] ?? true,
+                FILTER_VALIDATE_BOOLEAN
+            );
+
+            $connection = [
+                'scheme' => $tlsEnabled ? 'tls' : 'tcp',
                 'host' => $host,
-            ]);
-            $this->redis = $client;
+                'port' => $port,
+                'username' => $username,
+                'password' => $password,
+                'timeout' => 5.0,
+            ];
+
+            if ($tlsEnabled) {
+                $connection['ssl'] = [
+                    'verify_peer' => true,
+                    'verify_peer_name' => true,
+                ];
+            }
+
+            $this->redis = new Client($connection);
         } else {
-            $app->getLogger()->error('Redis connection failed');
+            $app->getLogger()->error(
+                'Valkey connection failed: missing required environment variables'
+            );
         }
     }
 
@@ -68,7 +96,9 @@ class Redis
 
             return $redis->isConnected();
         } catch (\Exception $e) {
-            App::getInstance(true)->getLogger()->error('Failed to connect to Redis: ' . $e->getMessage());
+            App::getInstance(true)->getLogger()->error(
+                'Failed to connect to Valkey: ' . $e->getMessage()
+            );
 
             return false;
         }
