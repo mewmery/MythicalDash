@@ -93,7 +93,6 @@ public function __construct($host, $dbName, $username = null, $password = null, 
     $this->username = $username;
     $this->password = $password;
     $this->port = $port;
-}
     }
 
     public function getPdo(): \PDO
