@@ -47,97 +47,96 @@ use MythicalDash\Services\Pterodactyl\Admin\Resources\UsersResource;
 $router->add('/api/user/auth/register', function (): void {
     global $eventManager;
     global $router;
+
     App::init();
+
     $appInstance = App::getInstance(true);
     $config = $appInstance->getConfig();
 
+    $appInstance->loadEnv();
+
+    $setupMode = filter_var(
+        $_ENV['XALIX_SETUP_MODE'] ?? 'false',
+        FILTER_VALIDATE_BOOLEAN
+    );
+
     $appInstance->allowOnlyPOST();
-    /**
-     * Check if the required fields are set.
-     *
-     * @var string
-     */
+
     if (!isset($_POST['firstName']) || $_POST['firstName'] == '') {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['firstName' => 'UNKNOWN', 'error_code' => 'MISSING_FIRST_NAME']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'MISSING_FIRST_NAME']);
     }
+
     if (!isset($_POST['lastName']) || $_POST['lastName'] == '') {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['lastName' => 'UNKNOWN', 'error_code' => 'MISSING_LAST_NAME']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'MISSING_LAST_NAME']);
     }
+
     if (!isset($_POST['email']) || $_POST['email'] == '') {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['email' => 'UNKNOWN', 'error_code' => 'MISSING_EMAIL']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'MISSING_EMAIL']);
     }
+
     if (!isset($_POST['password']) || $_POST['password'] == '') {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['password' => 'UNKNOWN', 'error_code' => 'MISSING_PASSWORD']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'MISSING_PASSWORD']);
     }
+
     if (!isset($_POST['username']) || $_POST['username'] == '') {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['username' => 'UNKNOWN', 'error_code' => 'MISSING_USERNAME']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'MISSING_USERNAME']);
     }
 
-    // Add validation for first name (only letters)
     if (!preg_match('/^[a-zA-Z]+$/', $_POST['firstName'])) {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['firstName' => $_POST['firstName'], 'error_code' => 'INVALID_FIRST_NAME']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'INVALID_FIRST_NAME']);
     }
 
-    // Add validation for last name (only letters)
     if (!preg_match('/^[a-zA-Z]+$/', $_POST['lastName'])) {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['lastName' => $_POST['lastName'], 'error_code' => 'INVALID_LAST_NAME']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'INVALID_LAST_NAME']);
     }
 
-    // Add validation for username (alphanumeric, no spaces or special chars)
     if (!preg_match('/^[a-zA-Z0-9]+$/', $_POST['username'])) {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['username' => $_POST['username'], 'error_code' => 'INVALID_USERNAME']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'INVALID_USERNAME']);
     }
 
-    // Add validation for email
     if (!filter_var($_POST['email'], FILTER_VALIDATE_EMAIL)) {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['email' => $_POST['email'], 'error_code' => 'INVALID_EMAIL']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'INVALID_EMAIL']);
     }
 
-    // Add validation for username length and allowed characters
     if (!preg_match('/^[a-zA-Z0-9_-]{3,32}$/', $_POST['username'])) {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['username' => $_POST['username'], 'error_code' => 'INVALID_USERNAME']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'INVALID_USERNAME']);
     }
 
-    // Add validation for password length (minimum 8 characters)
     if (strlen($_POST['password']) < 8) {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['password' => 'REDACTED', 'error_code' => 'PASSWORD_TOO_SHORT']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'PASSWORD_TOO_SHORT']);
     }
-    // Validate username format (must start and end with alphanumeric, can contain dots/dashes/underscores in between)
+
     if (!preg_match('/^[a-z0-9]([\w\.-]+)[a-z0-9]$/i', $_POST['username'])) {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['username' => $_POST['username'], 'error_code' => 'INVALID_USERNAME_FORMAT']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'INVALID_USERNAME_FORMAT']);
     }
 
-    // Check username length (1-191 chars)
     if (strlen($_POST['username']) < 1 || strlen($_POST['username']) > 191) {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['username' => $_POST['username'], 'error_code' => 'INVALID_USERNAME_LENGTH']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'INVALID_USERNAME_LENGTH']);
     }
 
-    // Check email length (1-191 chars)
     if (strlen($_POST['email']) < 1 || strlen($_POST['email']) > 191) {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['email' => $_POST['email'], 'error_code' => 'INVALID_EMAIL_LENGTH']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'INVALID_EMAIL_LENGTH']);
     }
 
-    // Check first name length (1-191 chars)
     if (strlen($_POST['firstName']) < 1 || strlen($_POST['firstName']) > 191) {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['firstName' => $_POST['firstName'], 'error_code' => 'INVALID_FIRST_NAME_LENGTH']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'INVALID_FIRST_NAME_LENGTH']);
     }
 
-    // Check last name length (1-191 chars)
     if (strlen($_POST['lastName']) < 1 || strlen($_POST['lastName']) > 191) {
         $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['lastName' => $_POST['lastName'], 'error_code' => 'INVALID_LAST_NAME_LENGTH']);
         $appInstance->BadRequest('Bad Request', ['error_code' => 'INVALID_LAST_NAME_LENGTH']);
@@ -145,18 +144,19 @@ $router->add('/api/user/auth/register', function (): void {
 
     Firewall::handle($appInstance, CloudFlareRealIP::getRealIP());
 
-    /**
-     * Process the turnstile response.
-     *
-     * IF the turnstile is enabled
-     */
-    if ($appInstance->getConfig()->getDBSetting(ConfigInterface::TURNSTILE_ENABLED, 'false') == 'true') {
+    if ($config->getDBSetting(ConfigInterface::TURNSTILE_ENABLED, 'false') == 'true') {
         if (!isset($_POST['turnstileResponse']) || $_POST['turnstileResponse'] == '') {
             $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['error_code' => 'MISSING_TURNSTILE_RESPONSE']);
             $appInstance->BadRequest('Bad Request', ['error_code' => 'TURNSTILE_FAILED']);
         }
+
         $cfTurnstileResponse = $_POST['turnstileResponse'];
-        if (!Turnstile::validate($cfTurnstileResponse, CloudFlareRealIP::getRealIP(), $config->getDBSetting(ConfigInterface::TURNSTILE_KEY_PRIV, 'XXXX'))) {
+
+        if (!Turnstile::validate(
+            $cfTurnstileResponse,
+            CloudFlareRealIP::getRealIP(),
+            $config->getDBSetting(ConfigInterface::TURNSTILE_KEY_PRIV, 'XXXX')
+        )) {
             $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['error_code' => 'TURNSTILE_FAILED']);
             $appInstance->BadRequest('Invalid TurnStile Key', ['error_code' => 'TURNSTILE_FAILED']);
         }
@@ -168,97 +168,199 @@ $router->add('/api/user/auth/register', function (): void {
     $password = $_POST['password'];
     $username = $_POST['username'];
 
-    /**
-     * Check if the email is already in use.
-     *
-     * @var bool
-     */
     try {
-        if ($config->getDBSetting(ConfigInterface::PTERODACTYL_BASE_URL, '') == '') {
+        $isFirstUser = User::isFirstUserInDatabase();
+
+        if ($setupMode && !$isFirstUser) {
             $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['error_code' => 'PTERODACTYL_NOT_ENABLED']);
-            $appInstance->BadRequest('Pterodactyl is not enabled', ['error_code' => 'PTERODACTYL_NOT_ENABLED']);
+            $appInstance->BadRequest(
+                'Setup mode only allows the first local owner account',
+                ['error_code' => 'PTERODACTYL_NOT_ENABLED']
+            );
+        }
+
+        if (
+            !$setupMode &&
+            $config->getDBSetting(ConfigInterface::PTERODACTYL_BASE_URL, '') == ''
+        ) {
+            $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['error_code' => 'PTERODACTYL_NOT_ENABLED']);
+            $appInstance->BadRequest(
+                'Pterodactyl is not enabled',
+                ['error_code' => 'PTERODACTYL_NOT_ENABLED']
+            );
         }
 
         if (User::exists(UserColumns::USERNAME, $username)) {
             $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['error_code' => 'USERNAME_ALREADY_IN_USE']);
             $appInstance->BadRequest('Bad Request', ['error_code' => 'USERNAME_ALREADY_IN_USE']);
         }
+
         if (User::exists(UserColumns::EMAIL, $email)) {
             $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['error_code' => 'EMAIL_ALREADY_IN_USE']);
             $appInstance->BadRequest('Bad Request', ['error_code' => 'EMAIL_ALREADY_IN_USE']);
         }
 
-        try {
-            $pterodactylUserId = MythicalDash\Hooks\Pterodactyl\Admin\User::performRegister($firstName, $lastName, $username, $email, $password);
-            if ($pterodactylUserId == 0 && $pterodactylUserId != null) {
-                $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['error_code' => 'PTERODACTYL_ERROR']);
-                $appInstance->InternalServerError('Internal Server Error', ['error_code' => 'PTERODACTYL_ERROR']);
-            }
-            $pteroUsers = new UsersResource($appInstance->getConfig()->getDBSetting(ConfigInterface::PTERODACTYL_BASE_URL, ''), $appInstance->getConfig()->getDBSetting(ConfigInterface::PTERODACTYL_API_KEY, ''));
+        $pterodactylUserId = 0;
 
-            MythicalDash\Hooks\Pterodactyl\Admin\User::performUpdateUser($pteroUsers, $pterodactylUserId, $username, $firstName, $lastName, $email, $password);
-        } catch (Exception $e) {
-            $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['error_code' => 'PTERODACTYL_ERROR']);
-            $appInstance->InternalServerError('Internal Server Error', ['error_code' => 'PTERODACTYL_ERROR']);
+        if (!$setupMode) {
+            try {
+                $pterodactylUserId =
+                    MythicalDash\Hooks\Pterodactyl\Admin\User::performRegister(
+                        $firstName,
+                        $lastName,
+                        $username,
+                        $email,
+                        $password
+                    );
+
+                if ($pterodactylUserId <= 0) {
+                    $eventManager->emit(
+                        AuthEvent::onAuthRegisterFailed(),
+                        ['error_code' => 'PTERODACTYL_ERROR']
+                    );
+
+                    $appInstance->InternalServerError(
+                        'Internal Server Error',
+                        ['error_code' => 'PTERODACTYL_ERROR']
+                    );
+                }
+
+                $pteroUsers = new UsersResource(
+                    $config->getDBSetting(ConfigInterface::PTERODACTYL_BASE_URL, ''),
+                    $config->getDBSetting(ConfigInterface::PTERODACTYL_API_KEY, '')
+                );
+
+                MythicalDash\Hooks\Pterodactyl\Admin\User::performUpdateUser(
+                    $pteroUsers,
+                    $pterodactylUserId,
+                    $username,
+                    $firstName,
+                    $lastName,
+                    $email,
+                    $password
+                );
+            } catch (Exception $e) {
+                $eventManager->emit(
+                    AuthEvent::onAuthRegisterFailed(),
+                    ['error_code' => 'PTERODACTYL_ERROR']
+                );
+
+                $appInstance->InternalServerError(
+                    'Internal Server Error',
+                    ['error_code' => 'PTERODACTYL_ERROR']
+                );
+            }
+        } else {
+            $appInstance->getLogger()->warning(
+                '[XalixCloud Setup Mode] Creating the first local owner account without Pterodactyl.'
+            );
         }
 
-        User::register($username, $password, $email, $firstName, $lastName, CloudFlareRealIP::getRealIP(), $pterodactylUserId);
+        User::register(
+            $username,
+            $password,
+            $email,
+            $firstName,
+            $lastName,
+            CloudFlareRealIP::getRealIP(),
+            $pterodactylUserId
+        );
+
         $newUserUuid = User::convertEmailToUUID($email);
         $newUserToken = User::getTokenFromEmail($email);
+
         if ($config->getDBSetting(ConfigInterface::REFERRALS_ENABLED, false)) {
             if ($newUserUuid) {
-                // Generate a referral code
                 $referralCode = $username . '_' . $appInstance->generatePin();
+
                 ReferralCodes::create($newUserUuid, $referralCode);
-                $eventManager->emit(ReferralsEvent::onReferralCreated(), [
-                    'user' => $newUserUuid,
-                    'referral_code' => $referralCode,
-                ]);
+
+                $eventManager->emit(
+                    ReferralsEvent::onReferralCreated(),
+                    [
+                        'user' => $newUserUuid,
+                        'referral_code' => $referralCode,
+                    ]
+                );
 
                 if (isset($_GET['ref']) && $_GET['ref'] != '') {
                     $referrerCode = ReferralCodes::getByCode($_GET['ref']);
 
-                    if (is_array($referrerCode) && isset($referrerCode['user']) && is_string($referrerCode['user']) && $referrerCode['user'] !== '') {
+                    if (
+                        is_array($referrerCode) &&
+                        isset($referrerCode['user']) &&
+                        is_string($referrerCode['user']) &&
+                        $referrerCode['user'] !== ''
+                    ) {
                         $referrerUuid = $referrerCode['user'];
-                        if ($referrerUuid !== null && is_string($referrerUuid) && $referrerUuid !== '') {
+
+                        if (
+                            $referrerUuid !== null &&
+                            is_string($referrerUuid) &&
+                            $referrerUuid !== ''
+                        ) {
                             $referrerToken = User::getTokenFromUUID($referrerUuid);
                         } else {
                             $referrerToken = null;
                         }
 
                         if ($referrerToken == null) {
-                            $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['error_code' => 'REFERRAL_CODE_NOT_FOUND']);
+                            $eventManager->emit(
+                                AuthEvent::onAuthRegisterFailed(),
+                                ['error_code' => 'REFERRAL_CODE_NOT_FOUND']
+                            );
                         } else {
-                            ReferralUses::create($referrerCode['id'], $newUserUuid);
-                            $eventManager->emit(ReferralsEvent::onReferralRedeemed(), [
-                                'user' => $referrerUuid,
-                                'referral_code' => $_GET['ref'],
-                            ]);
+                            ReferralUses::create(
+                                $referrerCode['id'],
+                                $newUserUuid
+                            );
 
-                            // Add credits atomically to prevent race conditions
-                            $newUserBonus = intval($appInstance->getConfig()->getDBSetting(ConfigInterface::REFERRALS_COINS_PER_REFERRAL_REDEEMER, 15));
+                            $eventManager->emit(
+                                ReferralsEvent::onReferralRedeemed(),
+                                [
+                                    'user' => $referrerUuid,
+                                    'referral_code' => $_GET['ref'],
+                                ]
+                            );
+
+                            $newUserBonus = intval(
+                                $config->getDBSetting(
+                                    ConfigInterface::REFERRALS_COINS_PER_REFERRAL_REDEEMER,
+                                    15
+                                )
+                            );
+
                             if (!User::addCreditsAtomic($newUserToken, $newUserBonus)) {
-                                // Log the error but don't fail the registration
-                                $appInstance->getLogger()->error('Failed to add referral bonus credits atomically for new user: ' . $newUserUuid);
+                                $appInstance->getLogger()->error(
+                                    'Failed to add referral bonus credits atomically for new user: ' .
+                                    $newUserUuid
+                                );
                             }
 
-                            // Calculate referrer bonus and add atomically
-                            $referrerBonus = intval($appInstance->getConfig()->getDBSetting(ConfigInterface::REFERRALS_COINS_PER_REFERRAL, 35));
+                            $referrerBonus = intval(
+                                $config->getDBSetting(
+                                    ConfigInterface::REFERRALS_COINS_PER_REFERRAL,
+                                    35
+                                )
+                            );
+
                             if (!User::addCreditsAtomic($referrerToken, $referrerBonus)) {
-                                // Log the error but don't fail the registration
-                                $appInstance->getLogger()->error('Failed to add referral bonus credits atomically for referrer: ' . $referrerUuid);
+                                $appInstance->getLogger()->error(
+                                    'Failed to add referral bonus credits atomically for referrer: ' .
+                                    $referrerUuid
+                                );
                             }
                         }
                     } else {
-                        $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['error_code' => 'REFERRAL_CODE_NOT_FOUND']);
+                        $eventManager->emit(
+                            AuthEvent::onAuthRegisterFailed(),
+                            ['error_code' => 'REFERRAL_CODE_NOT_FOUND']
+                        );
                     }
                 }
             }
         }
 
-        /**
-         * Default Resources.
-         */
         $defaultRam = (int) $config->getDBSetting(ConfigInterface::DEFAULT_RAM, 1024);
         $defaultDisk = (int) $config->getDBSetting(ConfigInterface::DEFAULT_DISK, 1024);
         $defaultCpu = (int) $config->getDBSetting(ConfigInterface::DEFAULT_CPU, 100);
@@ -266,17 +368,23 @@ $router->add('/api/user/auth/register', function (): void {
         $defaultDatabases = (int) $config->getDBSetting(ConfigInterface::DEFAULT_DATABASES, 1);
         $defaultServerSlots = (int) $config->getDBSetting(ConfigInterface::DEFAULT_SERVER_SLOTS, 1);
         $defaultBackups = (int) $config->getDBSetting(ConfigInterface::DEFAULT_BACKUPS, 5);
-        $defaultBg = $config->getDBSetting(ConfigInterface::DEFAULT_BG, 'https://cdn.mythical.systems/mc.jpg');
+        $defaultBg = $config->getDBSetting(
+            ConfigInterface::DEFAULT_BG,
+            'https://cdn.mythical.systems/mc.jpg'
+        );
 
         if ($defaultDatabases > 0) {
             $defaultDatabases = 1;
         }
+
         if ($defaultServerSlots > 0) {
             $defaultServerSlots = 1;
         }
+
         if ($defaultBackups > 0) {
             $defaultBackups = 1;
         }
+
         if ($defaultPorts > 0) {
             $defaultPorts = 1;
         }
@@ -290,18 +398,53 @@ $router->add('/api/user/auth/register', function (): void {
         User::updateInfo($newUserToken, UserColumns::BACKUP_LIMIT, $defaultBackups, false);
         User::updateInfo($newUserToken, UserColumns::BACKGROUND, $defaultBg, false);
 
-        $eventManager->emit(AuthEvent::onAuthRegisterSuccess(), ['username' => $username, 'email' => $email]);
-        // Optimize image hosting API key generation
-        if ($config->getDBSetting(ConfigInterface::IMAGE_HOSTING_ENABLED, 'false') === 'true') {
-            $api_key = UUIDManager::generateUUID();
-            User::updateInfo($newUserToken, UserColumns::IMAGE_HOSTING_UPLOAD_KEY, $api_key, false);
-            $appInstance->getLogger()->debug('Generated image hosting API key for new user: ' . $username);
-        }
-        IPRelationship::create($newUserUuid, CloudFlareRealIP::getRealIP());
-        App::OK('User registered', ['is_first_user' => false]);
-    } catch (Exception $e) {
-        $eventManager->emit(AuthEvent::onAuthRegisterFailed(), ['error_code' => 'DATABASE_ERROR']);
-        $appInstance->InternalServerError('Internal Server Error', ['error_code' => 'DATABASE_ERROR']);
-    }
+        $eventManager->emit(
+            AuthEvent::onAuthRegisterSuccess(),
+            ['username' => $username, 'email' => $email]
+        );
 
+        if (
+            $config->getDBSetting(
+                ConfigInterface::IMAGE_HOSTING_ENABLED,
+                'false'
+            ) === 'true'
+        ) {
+            $api_key = UUIDManager::generateUUID();
+
+            User::updateInfo(
+                $newUserToken,
+                UserColumns::IMAGE_HOSTING_UPLOAD_KEY,
+                $api_key,
+                false
+            );
+
+            $appInstance->getLogger()->debug(
+                'Generated image hosting API key for new user: ' .
+                $username
+            );
+        }
+
+        IPRelationship::create(
+            $newUserUuid,
+            CloudFlareRealIP::getRealIP()
+        );
+
+        App::OK(
+            'User registered',
+            [
+                'is_first_user' => $isFirstUser,
+                'setup_mode' => $setupMode,
+            ]
+        );
+    } catch (Exception $e) {
+        $eventManager->emit(
+            AuthEvent::onAuthRegisterFailed(),
+            ['error_code' => 'DATABASE_ERROR']
+        );
+
+        $appInstance->InternalServerError(
+            'Internal Server Error',
+            ['error_code' => 'DATABASE_ERROR']
+        );
+    }
 });
