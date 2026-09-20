@@ -46,6 +46,7 @@ REDIS_USER=${REDIS_USER}
 REDIS_PASSWORD=${REDIS_PASSWORD}
 REDIS_TLS=true
 
+XALIX_SETUP_MODE=${XALIX_SETUP_MODE:-false}
 firewall_enabled=false
 EOF
 
@@ -82,6 +83,15 @@ php -d display_errors=1 \
     -d display_startup_errors=1 \
     -l /var/www/html/app/FastChat/Redis.php
 
+php -d display_errors=1 \
+    -d display_startup_errors=1 \
+    -l /var/www/html/app/Api/User/Auth/Register.php
+
+php -d display_errors=1 \
+    -d display_startup_errors=1 \
+    -l /var/www/html/app/Api/User/Auth/Login.php
+
+echo "Xalix setup mode: ${XALIX_SETUP_MODE:-false}"
 echo "Checking PDO MySQL SSL support..."
 
 php -r '
@@ -99,16 +109,33 @@ php \
     /var/www/html/cli migrate
 
 echo "Setting permissions..."
+
+mkdir -p /var/www/html/backend/storage/logs
+mkdir -p /var/www/html/storage/logs
+
+touch /var/www/html/backend/storage/logs/mythicaldash-v3.log
+touch /var/www/html/backend/storage/logs/mythicaldash.log
+touch /var/www/html/storage/logs/mythicaldash-v3.log
+touch /var/www/html/storage/logs/mythicaldash.log
+
 chown -R www-data:www-data \
     /var/www/html/storage \
+    /var/www/html/backend/storage \
     /var/www/html/public/attachments
 
-chmod -R ug+rwX \
-    /var/www/html/storage \
-    /var/www/html/public/attachments
+find /var/www/html/storage /var/www/html/backend/storage /var/www/html/public/attachments \
+    -type d -exec chmod 775 {} \;
+
+find /var/www/html/storage /var/www/html/backend/storage /var/www/html/public/attachments \
+    -type f -exec chmod 664 {} \;
 
 echo "Setting up cron..."
 /usr/local/bin/setup-cron.sh
+
+chown -R www-data:www-data \
+    /var/www/html/storage \
+    /var/www/html/backend/storage \
+    /var/www/html/public/attachments
 
 rm -f /var/www/html/index.nginx-debian.html
 
