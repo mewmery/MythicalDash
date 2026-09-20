@@ -1,2 +1,2 @@
-ALTER TABLE `mythicaldash_users_activities`
-ADD COLUMN `context` TEXT NOT NULL DEFAULT ('None');
+ALTER TABLE `mythicaldash_eggs` DROP COLUMN `image`;
+ALTER TABLE `mythicaldash_locations` DROP COLUMN `image`;
