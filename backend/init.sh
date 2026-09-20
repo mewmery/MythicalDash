@@ -72,8 +72,31 @@ fi
 echo "Installing Composer dependencies..."
 COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader
 
+echo "Checking patched PHP files..."
+
+php -d display_errors=1 \
+    -d display_startup_errors=1 \
+    -l /var/www/html/app/Chat/Database.php
+
+php -d display_errors=1 \
+    -d display_startup_errors=1 \
+    -l /var/www/html/app/FastChat/Redis.php
+
+echo "Checking PDO MySQL SSL support..."
+
+php -r '
+echo "pdo_mysql loaded: " . (extension_loaded("pdo_mysql") ? "YES" : "NO") . PHP_EOL;
+echo "MYSQL_ATTR_SSL_CA available: " . (defined("PDO::MYSQL_ATTR_SSL_CA") ? "YES" : "NO") . PHP_EOL;
+echo "CA certificate readable: " . (is_readable("/var/www/html/ca.pem") ? "YES" : "NO") . PHP_EOL;
+'
+
 echo "Running MythicalDash migrations..."
-php /var/www/html/cli migrate
+
+php \
+    -d display_errors=1 \
+    -d display_startup_errors=1 \
+    -d log_errors=0 \
+    /var/www/html/cli migrate
 
 echo "Setting permissions..."
 chown -R www-data:www-data \
