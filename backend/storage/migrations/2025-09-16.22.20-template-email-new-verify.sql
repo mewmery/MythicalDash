@@ -1,10 +1,6 @@
 -- Ultra-modern verify email template with cutting-edge design
 -- Compatible with all major email clients
 
--- Add subject column if it doesn't exist
-ALTER TABLE `mythicaldash_mail_templates` 
-ADD COLUMN IF NOT EXISTS `subject` TEXT NOT NULL DEFAULT '';
-
 -- Update verify template with ultra-modern design
 UPDATE `mythicaldash_mail_templates` SET 
     `body` = '<!DOCTYPE html>
