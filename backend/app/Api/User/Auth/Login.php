@@ -1,714 +1,751 @@
-<?php
+<script setup lang="ts">
+import { ref, reactive, onMounted } from 'vue';
+import Layout from '@/components/client/Layout.vue';
+import FormCard from '@/components/client/Auth/FormCard.vue';
+import FormInput from '@/components/client/Auth/FormInput.vue';
+import Swal from 'sweetalert2';
+import { useRouter } from 'vue-router';
+import Turnstile from 'vue-turnstile';
+import { useSettingsStore } from '@/stores/settings';
+
+const Settings = useSettingsStore();
+
+import { useSound } from '@vueuse/sound';
+import failedAlertSfx from '@/assets/sounds/error.mp3';
+import successAlertSfx from '@/assets/sounds/success.mp3';
+import Auth from '@/mythicaldash/Auth';
+import { useI18n } from 'vue-i18n';
+import { MythicalDOM } from '@/mythicaldash/MythicalDOM';
+
+const { t } = useI18n();
+
+const { play: playError } =
+    useSound(failedAlertSfx);
+
+const { play: playSuccess } =
+    useSound(successAlertSfx);
+
+const router = useRouter();
 
 /*
- * This file is part of MythicalDash.
- *
- * MIT License
- *
- * Copyright (c) 2020-2025 MythicalSystems
- * Copyright (c) 2020-2025 Cassian Gherman (NaysKutzu)
+ * Login page intentionally clears cached session info.
+ * The backend cookie is created again after a successful login.
  */
+localStorage.clear();
+sessionStorage.clear();
 
-namespace MythicalDash\Api\User\Auth;
+MythicalDOM.setPageTitle(
+    t('auth.pages.login.page.title')
+);
 
-use MythicalDash\App;
-use MythicalDash\Mail\Mail;
-use MythicalDash\Chat\User\User;
-use MythicalDash\Chat\Servers\Server;
-use MythicalDash\Middleware\Firewall;
-use MythicalDash\Config\ConfigInterface;
-use MythicalDash\Chat\columns\UserColumns;
-use MythicalDash\Chat\User\PermissionUtils;
-use MythicalDash\CloudFlare\CloudFlareRealIP;
-use MythicalDash\Hooks\Pterodactyl\Admin\Servers;
-use MythicalDash\Plugins\Events\Events\AuthEvent;
-use MythicalDash\Chat\IPRelationships\IPRelationship;
-use MythicalDash\Hooks\MythicalSystems\User\UUIDManager;
-use MythicalDash\Hooks\MythicalSystems\CloudFlare\Turnstile;
+const loading = ref(false);
 
-$router->add('/api/user/auth/login', function (): void {
-    global $eventManager;
-    global $router;
+const form = reactive({
+    email: '',
+    password: '',
+    turnstileResponse: '',
+});
 
-    $appInstance = App::getInstance(true);
-    $config = $appInstance->getConfig();
+const turnstileKey = ref(0);
 
-    $appInstance->loadEnv();
+const domainName =
+    localStorage.getItem('domain_name');
 
-    $setupMode = filter_var(
-        $_ENV['XALIX_SETUP_MODE'] ?? 'false',
-        FILTER_VALIDATE_BOOLEAN
-    );
+interface AltAccount {
+    uuid: string;
+    username: string;
+    avatar: string;
+}
 
-    $appInstance->allowOnlyPOST();
+const errorMessages = {
+    TURNSTILE_FAILED:
+        t(
+            'auth.pages.login.alerts.error.cloudflare_error'
+        ),
 
-    if (!isset($_POST['login']) || $_POST['login'] == '') {
-        $eventManager->emit(
-            AuthEvent::onAuthLoginFailed(),
-            [
-                'login' => 'UNKNOWN',
-                'error_code' => 'MISSING_LOGIN',
-            ]
-        );
+    INVALID_CREDENTIALS:
+        t(
+            'auth.pages.login.alerts.error.invalid_credentials'
+        ),
 
-        $appInstance->BadRequest(
-            'Bad Request',
-            ['error_code' => 'MISSING_LOGIN']
-        );
-    }
+    ACCOUNT_NOT_VERIFIED:
+        t(
+            'auth.pages.login.alerts.error.not_verified'
+        ),
 
-    if (!isset($_POST['password']) || $_POST['password'] == '') {
-        $eventManager->emit(
-            AuthEvent::onAuthLoginFailed(),
-            [
-                'login' => $_POST['login'],
-                'error_code' => 'MISSING_PASSWORD',
-            ]
-        );
+    ACCOUNT_BANNED:
+        t(
+            'auth.pages.login.alerts.error.banned'
+        ),
 
-        $appInstance->BadRequest(
-            'Bad Request',
-            ['error_code' => 'MISSING_PASSWORD']
-        );
-    }
+    ACCOUNT_DELETED:
+        t(
+            'auth.pages.login.alerts.error.deleted'
+        ),
 
-    if (
-        $config->getDBSetting(
-            ConfigInterface::TURNSTILE_ENABLED,
-            'false'
-        ) == 'true'
-    ) {
+    PTERODACTYL_USER_NOT_FOUND:
+        t(
+            'auth.pages.login.alerts.error.pterodactyl_user_not_found'
+        ),
+
+    PTERODACTYL_ERROR:
+        t(
+            'auth.pages.login.alerts.error.pterodactyl_error'
+        ),
+
+    PTERODACTYL_NOT_ENABLED:
+        t(
+            'auth.pages.login.alerts.error.pterodactyl_not_enabled'
+        ),
+
+    PROXY_DETECTED:
+        t(
+            'auth.pages.login.alerts.error.proxy_detected'
+        ),
+
+    MULTIPLE_ACCOUNTS:
+        t(
+            'auth.pages.login.alerts.error.multiple_accounts'
+        ),
+
+    DISCORD_NOT_ENABLED:
+        t(
+            'auth.pages.login.alerts.error.discord_not_enabled'
+        ),
+
+    GITHUB_NOT_ENABLED:
+        t(
+            'auth.pages.login.alerts.error.github_not_enabled'
+        ),
+
+    DISCORD_TOKEN_FAILED:
+        t(
+            'auth.pages.login.alerts.error.discord_token_failed'
+        ),
+
+    GITHUB_TOKEN_FAILED:
+        t(
+            'auth.pages.login.alerts.error.github_token_failed'
+        ),
+
+    DISCORD_USER_FAILED:
+        t(
+            'auth.pages.login.alerts.error.discord_user_failed'
+        ),
+
+    GITHUB_USER_FAILED:
+        t(
+            'auth.pages.login.alerts.error.github_user_failed'
+        ),
+
+    DISCORD_USER_NOT_FOUND:
+        t(
+            'auth.pages.login.alerts.error.discord_user_not_found'
+        ),
+
+    GITHUB_USER_NOT_FOUND:
+        t(
+            'auth.pages.login.alerts.error.github_user_not_found'
+        ),
+
+    DISCORD_USER_MISMATCH:
+        t(
+            'auth.pages.login.alerts.error.discord_user_mismatch'
+        ),
+
+    GITHUB_USER_MISMATCH:
+        t(
+            'auth.pages.login.alerts.error.github_user_mismatch'
+        ),
+
+    DISCORD_ALREADY_LINKED:
+        t(
+            'auth.pages.login.alerts.error.discord_already_linked'
+        ),
+
+    GITHUB_ALREADY_LINKED:
+        t(
+            'auth.pages.login.alerts.error.github_already_linked'
+        ),
+
+    DISCORD_NOT_LINKED:
+        t(
+            'auth.pages.login.alerts.error.discord_not_linked'
+        ),
+
+    GITHUB_NOT_LINKED:
+        t(
+            'auth.pages.login.alerts.error.github_not_linked'
+        ),
+
+    DISCORD_AUTH_FAILED:
+        t(
+            'auth.pages.login.alerts.error.discord_auth_failed'
+        ),
+
+    GITHUB_AUTH_FAILED:
+        t(
+            'auth.pages.login.alerts.error.github_auth_failed'
+        ),
+};
+
+const handleSubmit = async () => {
+    try {
+        loading.value = true;
+
+        const response =
+            await Auth.login(
+                form.email,
+                form.password,
+                form.turnstileResponse,
+            );
+
+        /*
+         * Password was correct, but XalixCloud requires
+         * the authenticator code before entering the panel.
+         */
         if (
-            !isset($_POST['turnstileResponse']) ||
-            $_POST['turnstileResponse'] == ''
+            response.success === true &&
+            response.requires_2fa === true
         ) {
-            $eventManager->emit(
-                AuthEvent::onAuthLoginFailed(),
-                [
-                    'login' => $_POST['login'],
-                    'error_code' => 'TURNSTILE_FAILED',
-                ]
+            loading.value = false;
+
+            await router.push(
+                '/auth/2fa/verify'
             );
 
-            $appInstance->BadRequest(
-                'Bad Request',
-                ['error_code' => 'TURNSTILE_FAILED']
-            );
+            return;
         }
 
-        $cfTurnstileResponse = $_POST['turnstileResponse'];
+        if (!response.success) {
+            const error_code =
+                response.error_code as keyof typeof errorMessages;
 
-        if (
-            !Turnstile::validate(
-                $cfTurnstileResponse,
-                CloudFlareRealIP::getRealIP(),
-                $config->getDBSetting(
-                    ConfigInterface::TURNSTILE_KEY_PRIV,
-                    'XXXX'
-                )
-            )
-        ) {
-            $eventManager->emit(
-                AuthEvent::onAuthLoginFailed(),
-                [
-                    'login' => $_POST['login'],
-                    'error_code' => 'TURNSTILE_FAILED',
+            if (
+                errorMessages[
+                    error_code
                 ]
-            );
+            ) {
+                playError();
 
-            $appInstance->BadRequest(
-                'Invalid TurnStile Key',
-                ['error_code' => 'TURNSTILE_FAILED']
-            );
+                if (
+                    error_code ===
+                        'MULTIPLE_ACCOUNTS' &&
+                    response.info &&
+                    response.info.length > 0
+                ) {
+                    const altAccounts =
+                        response.info
+                            .map(
+                                (
+                                    account: AltAccount,
+                                ) => `
+                                    <div class="flex items-center space-x-3 mb-2">
+                                        <img
+                                            src="${account.avatar}"
+                                            alt="${account.username}"
+                                            class="w-8 h-8 rounded-full"
+                                        >
+                                        <div>
+                                            <div class="font-medium text-white">
+                                                ${account.username}
+                                            </div>
+                                            <div class="text-sm text-gray-400">
+                                                ${account.uuid}
+                                            </div>
+                                        </div>
+                                    </div>
+                                `,
+                            )
+                            .join('');
+
+                    Swal.fire({
+                        icon: 'error',
+
+                        title:
+                            t(
+                                'auth.pages.login.alerts.error.title'
+                            ),
+
+                        html: `
+                            <div class="text-left">
+                                <p class="mb-4">
+                                    ${errorMessages[error_code]}
+                                </p>
+
+                                <div class="bg-gray-800 p-4 rounded-lg">
+                                    <h3 class="text-lg font-medium mb-2">
+                                        Detected Alt Accounts:
+                                    </h3>
+
+                                    ${altAccounts}
+                                </div>
+                            </div>
+                        `,
+
+                        footer:
+                            t(
+                                'auth.pages.login.alerts.error.footer'
+                            ),
+
+                        showConfirmButton:
+                            true,
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+
+                        title:
+                            t(
+                                'auth.pages.login.alerts.error.title'
+                            ),
+
+                        text:
+                            errorMessages[
+                                error_code
+                            ],
+
+                        footer:
+                            t(
+                                'auth.pages.login.alerts.error.footer'
+                            ),
+
+                        showConfirmButton:
+                            true,
+                    });
+                }
+
+                loading.value = false;
+
+                return;
+            }
+
+            playError();
+
+            Swal.fire({
+                icon: 'error',
+
+                title:
+                    t(
+                        'auth.pages.login.alerts.error.title'
+                    ),
+
+                text:
+                    response.message,
+
+                footer:
+                    t(
+                        'auth.pages.login.alerts.error.footer'
+                    ),
+
+                showConfirmButton:
+                    true,
+            });
+
+            loading.value = false;
+
+            return;
         }
+
+        /*
+         * No 2FA required: normal successful login.
+         */
+        playSuccess();
+
+        Swal.fire({
+            icon: 'success',
+
+            title:
+                t(
+                    'auth.pages.login.alerts.success.title'
+                ),
+
+            text:
+                t(
+                    'auth.pages.login.alerts.success.login_success'
+                ),
+
+            footer:
+                t(
+                    'auth.pages.login.alerts.success.footer'
+                ),
+
+            showConfirmButton:
+                true,
+        });
+
+        loading.value = false;
+
+        localStorage.setItem(
+            'needs_refresh',
+            'true',
+        );
+
+        setTimeout(() => {
+            router.push('/');
+        }, 1500);
+    } catch (error) {
+        console.error(
+            'Login failed:',
+            error,
+        );
+
+        playError();
+
+        Swal.fire({
+            icon: 'error',
+            title: 'Login Failed',
+            text: 'An unexpected login error occurred.',
+        });
+    } finally {
+        loading.value = false;
+
+        turnstileKey.value++;
     }
+};
 
-    $login = $_POST['login'];
-    $password = $_POST['password'];
-
-    Firewall::handle(
-        $appInstance,
-        CloudFlareRealIP::getRealIP()
-    );
-
-    $loginResult = User::login(
-        $login,
-        $password
-    );
-
-    if ($loginResult == 'false') {
-        $eventManager->emit(
-            AuthEvent::onAuthLoginFailed(),
-            [
-                'login' => $login,
-                'error_code' => 'INVALID_CREDENTIALS',
-            ]
-        );
-
-        $appInstance->BadRequest(
-            'Invalid login credentials',
-            ['error_code' => 'INVALID_CREDENTIALS']
-        );
-    }
-
-    if (
-        !$setupMode &&
-        $config->getDBSetting(
-            ConfigInterface::PTERODACTYL_BASE_URL,
-            ''
-        ) == ''
-    ) {
-        $eventManager->emit(
-            AuthEvent::onAuthLoginFailed(),
-            [
-                'login' => $login,
-                'error_code' => 'PTERODACTYL_NOT_ENABLED',
-            ]
-        );
-
-        $appInstance->BadRequest(
-            'Pterodactyl is not enabled',
-            ['error_code' => 'PTERODACTYL_NOT_ENABLED']
-        );
+function base64_decode(
+    str: string | null,
+): string {
+    if (!str) {
+        return '';
     }
 
     try {
-        $userInfoArray = User::getInfoArray(
-            $loginResult,
-            [
-                UserColumns::PTERODACTYL_USER_ID,
-                UserColumns::VERIFIED,
-                UserColumns::BANNED,
-                UserColumns::DELETED,
-                UserColumns::USERNAME,
-                UserColumns::TWO_FA_ENABLED,
-                UserColumns::TWO_FA_BLOCKED,
-                UserColumns::EMAIL,
-                UserColumns::PASSWORD,
-                UserColumns::UUID,
-                UserColumns::FIRST_NAME,
-                UserColumns::LAST_NAME,
-                UserColumns::CREDITS,
-                UserColumns::DISCORD_ID,
-                UserColumns::GITHUB_ID,
-                UserColumns::AVATAR,
-                UserColumns::IMAGE_HOSTING_UPLOAD_KEY,
-            ],
-            [
-                UserColumns::FIRST_NAME,
-                UserColumns::LAST_NAME,
-                UserColumns::PASSWORD,
-            ]
+        return atob(str);
+    } catch (e) {
+        console.error(
+            'Failed to decode base64 string:',
+            e,
         );
 
-        $criticalFields = [
-            UserColumns::USERNAME => 'username',
-            UserColumns::EMAIL => 'email',
-            UserColumns::UUID => 'UUID',
-        ];
-
-        if (!$setupMode) {
-            $criticalFields[
-                UserColumns::PTERODACTYL_USER_ID
-            ] = 'Pterodactyl user ID';
-        }
-
-        foreach ($criticalFields as $field => $fieldName) {
-            if (
-                !isset($userInfoArray[$field]) ||
-                $userInfoArray[$field] === null ||
-                $userInfoArray[$field] === ''
-            ) {
-                $appInstance->getLogger()->error(
-                    "Critical user data missing: {$fieldName} for user {$login}"
-                );
-
-                $eventManager->emit(
-                    AuthEvent::onAuthLoginFailed(),
-                    [
-                        'login' => $login,
-                        'error_code' => 'INVALID_USER_DATA',
-                    ]
-                );
-
-                $appInstance->BadRequest(
-                    'Invalid user data',
-                    ['error_code' => 'INVALID_USER_DATA']
-                );
-            }
-        }
-    } catch (\Exception $e) {
-        $appInstance->getLogger()->error(
-            'Failed to get user info: ' .
-            $e->getMessage()
-        );
-
-        $appInstance->InternalServerError(
-            'Internal Server Error',
-            ['error_code' => 'DATABASE_ERROR']
-        );
+        return '';
     }
+}
 
-    /*
-     * Once setup mode is disabled, automatically
-     * connect the local XalixCloud owner account
-     * to Pterodactyl if it has no Pterodactyl ID.
-     */
-    if (
-        !$setupMode &&
-        (int) $userInfoArray[
-            UserColumns::PTERODACTYL_USER_ID
-        ] === 0
-    ) {
-        try {
-            $newPterodactylUserId =
-                \MythicalDash\Hooks\Pterodactyl\Admin\User::performRegister(
-                    $userInfoArray[
-                        UserColumns::FIRST_NAME
-                    ] ?? '',
-                    $userInfoArray[
-                        UserColumns::LAST_NAME
-                    ] ?? '',
-                    $userInfoArray[
-                        UserColumns::USERNAME
-                    ],
-                    $userInfoArray[
-                        UserColumns::EMAIL
-                    ],
-                    $userInfoArray[
-                        UserColumns::PASSWORD
-                    ] ?? ''
-                );
+const handleDiscordLogin = () => {
+    localStorage.setItem(
+        'needs_refresh',
+        'true',
+    );
 
-            if ($newPterodactylUserId <= 0) {
-                throw new \Exception(
-                    'Pterodactyl returned an invalid user ID'
-                );
-            }
+    setTimeout(() => {
+        window.location.href =
+            '/api/user/auth/callback/discord/login';
+    }, 1000);
+};
 
-            User::updateInfo(
-                $loginResult,
-                UserColumns::PTERODACTYL_USER_ID,
-                $newPterodactylUserId,
-                false
-            );
+const handleGithubLogin = () => {
+    localStorage.setItem(
+        'needs_refresh',
+        'true',
+    );
 
-            $userInfoArray[
-                UserColumns::PTERODACTYL_USER_ID
-            ] = $newPterodactylUserId;
+    setTimeout(() => {
+        window.location.href =
+            '/api/user/auth/callback/github/login';
+    }, 1000);
+};
 
-            $appInstance->getLogger()->info(
-                '[XalixCloud Setup Mode] Linked local user to Pterodactyl user ID ' .
-                $newPterodactylUserId
-            );
-        } catch (\Exception $e) {
-            $appInstance->getLogger()->error(
-                '[XalixCloud Setup Mode] Failed to link local user to Pterodactyl: ' .
-                $e->getMessage()
-            );
-
-            $eventManager->emit(
-                AuthEvent::onAuthLoginFailed(),
-                [
-                    'login' => $login,
-                    'error_code' => 'PTERODACTYL_ERROR',
-                ]
-            );
-
-            $appInstance->InternalServerError(
-                'Internal Server Error',
-                ['error_code' => 'PTERODACTYL_ERROR']
-            );
-        }
-    }
-
-    /*
-     * Verification checks.
-     */
-    if (
-        ($userInfoArray[
-            UserColumns::VERIFIED
-        ] ?? 'false') == 'false' &&
-        Mail::isEnabled()
-    ) {
-        User::logout();
-
-        $eventManager->emit(
-            AuthEvent::onAuthLoginFailed(),
-            [
-                'login' => $login,
-                'error_code' => 'ACCOUNT_NOT_VERIFIED',
-            ]
+onMounted(() => {
+    const urlParams =
+        new URLSearchParams(
+            window.location.search,
         );
 
-        $appInstance->BadRequest(
-            'Account not verified',
-            ['error_code' => 'ACCOUNT_NOT_VERIFIED']
-        );
-    }
-
-    if (
-        ($userInfoArray[
-            UserColumns::BANNED
-        ] ?? 'NO') !== 'NO'
-    ) {
-        User::logout();
-
-        $eventManager->emit(
-            AuthEvent::onAuthLoginFailed(),
-            [
-                'login' => $login,
-                'error_code' => 'ACCOUNT_BANNED',
-            ]
+    const email =
+        base64_decode(
+            urlParams.get('email'),
         );
 
-        $appInstance->BadRequest(
-            'Account is banned',
-            ['error_code' => 'ACCOUNT_BANNED']
-        );
-    }
-
-    if (
-        ($userInfoArray[
-            UserColumns::DELETED
-        ] ?? 'false') == 'true'
-    ) {
-        User::logout();
-
-        $eventManager->emit(
-            AuthEvent::onAuthLoginFailed(),
-            [
-                'login' => $login,
-                'error_code' => 'ACCOUNT_DELETED',
-            ]
+    const password =
+        base64_decode(
+            urlParams.get('password'),
         );
 
-        $appInstance->BadRequest(
-            'Account is deleted',
-            ['error_code' => 'ACCOUNT_DELETED']
-        );
-    }
+    const performLogin =
+        urlParams.get('performLogin');
 
-    /*
-     * Determine whether this login requires 2FA.
-     */
-    $requiresTwoFactor =
-        (
-            $userInfoArray[
-                UserColumns::TWO_FA_ENABLED
-            ] ?? 'false'
-        ) === 'true';
+    const error =
+        urlParams.get('error');
 
-    if ($requiresTwoFactor) {
-        User::updateInfo(
-            $loginResult,
-            UserColumns::TWO_FA_BLOCKED,
-            'true',
-            false
-        );
-    }
+    const message =
+        urlParams.get('message');
 
-    /*
-     * Set the session cookie BEFORE returning the
-     * 2FA-required response, because the verification
-     * endpoint needs this token.
-     */
-    if (APP_DEBUG) {
-        setcookie(
-            'user_token',
-            $loginResult,
-            time() + 3600 * 31 * 3600,
-            '/'
-        );
-    } else {
-        setcookie(
-            'user_token',
-            $loginResult,
-            time() + 3600,
-            '/'
-        );
-    }
-
-    /*
-     * Password was correct, but do NOT enter the
-     * dashboard yet if 2FA is enabled.
-     */
-    if ($requiresTwoFactor) {
-        $eventManager->emit(
-            AuthEvent::onAuthLoginSuccess(),
-            [
-                'login' =>
-                    $userInfoArray[
-                        UserColumns::EMAIL
-                    ],
-            ]
-        );
-
-        $appInstance->OK(
-            'Two-factor authentication required',
-            [
-                'requires_2fa' => true,
-            ]
-        );
-    }
-
-    /*
-     * Pterodactyl login/server syncing only runs
-     * outside temporary Xalix setup mode.
-     */
-    if (!$setupMode) {
-        try {
-            \MythicalDash\Hooks\Pterodactyl\Admin\User::performLogin(
-                $userInfoArray[
-                    UserColumns::PTERODACTYL_USER_ID
-                ],
-                $userInfoArray[
-                    UserColumns::EMAIL
-                ],
-                $userInfoArray[
-                    UserColumns::USERNAME
-                ],
-                $userInfoArray[
-                    UserColumns::FIRST_NAME
-                ] ?? '',
-                $userInfoArray[
-                    UserColumns::LAST_NAME
-                ] ?? '',
-                $userInfoArray[
-                    UserColumns::PASSWORD
-                ] ?? ''
-            );
-        } catch (\Exception $e) {
-            $appInstance->getLogger()->error(
-                '[Pterodactyl/Admin/User#performLogin] ' .
-                $e->getMessage()
-            );
-
-            $appInstance->InternalServerError(
-                'Internal Server Error',
-                ['error_code' => 'PTERODACTYL_ERROR']
-            );
-        }
-
-        try {
-            $pterodactylServers =
-                Servers::getUserServersList(
-                    $userInfoArray[
-                        UserColumns::PTERODACTYL_USER_ID
-                    ]
-                );
-
-            foreach (
-                $pterodactylServers
-                as $pterodactylServer
-            ) {
-                if (
-                    !Server::doesServerExistByPterodactylId(
-                        $pterodactylServer['id']
-                    )
-                ) {
-                    Server::create(
-                        $pterodactylServer['id'],
-                        null,
-                        $userInfoArray[
-                            UserColumns::UUID
-                        ]
-                    );
-                }
-            }
-        } catch (\Exception $e) {
-            $appInstance->getLogger()->error(
-                '[Pterodactyl server sync] ' .
-                $e->getMessage()
-            );
-
-            $appInstance->InternalServerError(
-                'Internal Server Error',
-                ['error_code' => 'PTERODACTYL_ERROR']
-            );
-        }
-    } else {
-        $appInstance->getLogger()->warning(
-            '[XalixCloud Setup Mode] Pterodactyl login and server sync skipped.'
-        );
-    }
-
-    $userUuid =
-        $userInfoArray[
-            UserColumns::UUID
-        ];
-
-    $currentIP =
-        CloudFlareRealIP::getRealIP();
-
-    $hasAltBypassPermission =
-        PermissionUtils::userHasPermission(
-            $loginResult,
-            \MythicalDash\Permissions::USER_PERMISSION_BYPASS_ALTING
-        );
-
-    if (
-        $config->getDBSetting(
-            ConfigInterface::FIREWALL_BLOCK_ALTS,
-            'false'
-        ) == 'true' &&
-        !$hasAltBypassPermission
-    ) {
-        $processedUsers = [];
-
-        IPRelationship::create(
-            $userUuid,
-            $currentIP
-        );
-
-        $multipleAccounts =
-            IPRelationship::processMultipleAccounts(
-                $userUuid
-            );
+    if (error) {
+        const error_code =
+            error.toUpperCase()
+            as keyof typeof errorMessages;
 
         if (
-            $multipleAccounts[
-                'has_multiple_accounts'
+            errorMessages[
+                error_code
             ]
         ) {
-            try {
-                User::updateInfo(
-                    $loginResult,
-                    UserColumns::BANNED,
-                    'User banned for multiple accounts on ' .
-                    $currentIP,
-                    false
-                );
+            playError();
 
-                $processedUsers[] = [
-                    'uuid' =>
-                        $userUuid,
-                    'username' =>
-                        $userInfoArray[
-                            UserColumns::USERNAME
-                        ],
-                    'avatar' =>
-                        $userInfoArray[
-                            UserColumns::AVATAR
-                        ],
-                ];
-            } catch (\Exception $e) {
-                $appInstance
-                    ->getLogger()
-                    ->error(
-                        'Failed to ban current user: ' .
-                        $e->getMessage()
-                    );
-            }
+            Swal.fire({
+                icon: 'error',
 
-            foreach (
-                $multipleAccounts[
-                    'relationships'
-                ]
-                as $relationship
-            ) {
-                try {
-                    $token =
-                        User::getTokenFromUUID(
-                            $relationship['user']
-                        );
+                title:
+                    t(
+                        'auth.pages.login.alerts.error.title'
+                    ),
 
-                    $relatedUserInfo =
-                        User::getInfoArray(
-                            $token,
-                            [
-                                UserColumns::USERNAME,
-                                UserColumns::AVATAR,
-                            ],
-                            [
-                                UserColumns::PASSWORD,
-                            ]
-                        );
+                text:
+                    message
+                        ? `${errorMessages[error_code]}: ${message}`
+                        : errorMessages[
+                              error_code
+                          ],
 
-                    User::updateInfo(
-                        $token,
-                        UserColumns::BANNED,
-                        'User banned for multiple accounts on ' .
-                        $currentIP,
-                        false
-                    );
+                footer:
+                    t(
+                        'auth.pages.login.alerts.error.footer'
+                    ),
 
-                    $processedUsers[] = [
-                        'uuid' =>
-                            $relationship['user'],
-                        'username' =>
-                            $relatedUserInfo[
-                                UserColumns::USERNAME
-                            ],
-                        'avatar' =>
-                            $relatedUserInfo[
-                                UserColumns::AVATAR
-                            ],
-                    ];
-                } catch (\Exception $e) {
-                    $appInstance
-                        ->getLogger()
-                        ->error(
-                            'Failed to ban related user: ' .
-                            $e->getMessage()
-                        );
-                }
-            }
+                showConfirmButton:
+                    true,
+            });
+        } else {
+            playError();
+
+            Swal.fire({
+                icon: 'error',
+
+                title:
+                    t(
+                        'auth.pages.login.alerts.error.title'
+                    ),
+
+                text:
+                    message ||
+                    t(
+                        'auth.pages.login.alerts.error.generic'
+                    ),
+
+                footer:
+                    t(
+                        'auth.pages.login.alerts.error.footer'
+                    ),
+
+                showConfirmButton:
+                    true,
+            });
         }
 
-        if (!empty($processedUsers)) {
-            $appInstance->BadRequest(
-                'Multiple accounts detected and banned',
-                [
-                    'error_code' =>
-                        'MULTIPLE_ACCOUNTS',
-                    'info' =>
-                        $processedUsers,
-                ]
-            );
-        }
+        window.history.replaceState(
+            {},
+            '',
+            window.location.pathname,
+        );
+
+        return;
     }
-
-    $login =
-        $userInfoArray[
-            UserColumns::EMAIL
-        ];
 
     if (
-        $config->getDBSetting(
-            ConfigInterface::IMAGE_HOSTING_ENABLED,
-            'false'
-        ) === 'true'
+        email &&
+        password &&
+        performLogin === 'true'
     ) {
-        $api_key =
-            $userInfoArray[
-                UserColumns::IMAGE_HOSTING_UPLOAD_KEY
-            ] ?? '';
+        form.email = email;
+        form.password = password;
 
-        if (empty($api_key)) {
-            $api_key =
-                UUIDManager::generateUUID();
+        handleSubmit();
 
-            User::updateInfo(
-                $loginResult,
-                UserColumns::IMAGE_HOSTING_UPLOAD_KEY,
-                $api_key,
-                false
-            );
-        }
+        window.history.replaceState(
+            {},
+            '',
+            window.location.pathname,
+        );
     }
-
-    $eventManager->emit(
-        AuthEvent::onAuthLoginSuccess(),
-        [
-            'login' => $login,
-        ]
-    );
-
-    $appInstance->OK(
-        'Successfully logged in',
-        [
-            'requires_2fa' => false,
-        ]
-    );
 });
+
+const isEnterpriseLogin =
+    localStorage.getItem(
+        'domain_name'
+    ) !== null;
+
+if (isEnterpriseLogin) {
+    document.title =
+        `${t(
+            'auth.pages.login.page.subTitle'
+        )} - ${localStorage.getItem(
+            'domain_name'
+        )}`;
+}
+</script>
+
+<template>
+    <Layout>
+        <FormCard
+            :title="`${$t(
+                'auth.pages.login.page.subTitle',
+            )}${
+                domainName
+                    ? ` - ${domainName}`
+                    : ''
+            }`"
+            @submit="handleSubmit"
+        >
+            <FormInput
+                id="email"
+                :label="
+                    $t(
+                        'auth.pages.login.page.form.email.label',
+                    )
+                "
+                v-model="form.email"
+                :placeholder="
+                    $t(
+                        'auth.pages.login.page.form.email.placeholder',
+                    )
+                "
+                required
+            />
+
+            <div
+                class="flex items-center justify-between mb-2"
+            >
+                <label
+                    class="block text-sm text-gray-400"
+                >
+                    {{
+                        $t(
+                            'auth.pages.login.page.form.password.label',
+                        )
+                    }}
+                </label>
+
+                <router-link
+                    to="/auth/forgot-password"
+                    class="text-sm text-purple-400 hover:text-purple-300"
+                >
+                    {{
+                        $t(
+                            'auth.pages.login.page.form.forgot_password',
+                        )
+                    }}
+                </router-link>
+            </div>
+
+            <FormInput
+                id="password"
+                type="password"
+                v-model="form.password"
+                :placeholder="
+                    t(
+                        'auth.pages.login.page.form.password.placeholder',
+                    )
+                "
+                required
+            />
+
+            <div
+                v-if="
+                    Settings.getSetting(
+                        'turnstile_enabled',
+                    ) === 'true'
+                "
+                style="
+                    display: flex;
+                    justify-content: center;
+                    margin-top: 20px;
+                "
+            >
+                <Turnstile
+                    :key="turnstileKey"
+                    :site-key="
+                        Settings.getSetting(
+                            'turnstile_key_pub',
+                        )
+                    "
+                    v-model="
+                        form.turnstileResponse
+                    "
+                />
+            </div>
+
+            <button
+                type="submit"
+                class="w-full mt-6 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+                :disabled="loading"
+            >
+                {{
+                    loading
+                        ? $t(
+                              'auth.pages.login.page.form.login_button.loading',
+                          )
+                        : $t(
+                              'auth.pages.login.page.form.login_button.label',
+                          )
+                }}
+            </button>
+
+            <div
+                class="flex items-center my-4"
+            >
+                <div
+                    class="flex-1 border-t border-gray-600"
+                ></div>
+
+                <span
+                    class="px-4 text-sm text-gray-400"
+                >
+                    or
+                </span>
+
+                <div
+                    class="flex-1 border-t border-gray-600"
+                ></div>
+            </div>
+
+            <button
+                v-if="
+                    Settings.getSetting(
+                        'discord_enabled',
+                    ) === 'true'
+                "
+                @click="handleDiscordLogin"
+                type="button"
+                class="flex items-center justify-center w-full px-4 py-2 bg-[#5865F2] hover:bg-[#4752C4] text-white rounded-lg transition-colors"
+            >
+                Continue with Discord
+            </button>
+
+            <button
+                v-if="
+                    Settings.getSetting(
+                        'github_enabled',
+                    ) === 'true'
+                "
+                @click="handleGithubLogin"
+                type="button"
+                class="flex items-center justify-center w-full px-4 py-2 bg-[#24292e] hover:bg-[#1b1f23] text-white rounded-lg transition-colors mt-2"
+            >
+                Continue with GitHub
+            </button>
+
+            <p
+                class="mt-4 text-center text-sm text-gray-400"
+            >
+                {{
+                    $t(
+                        'auth.pages.login.page.form.register.label',
+                    )
+                }}
+
+                <router-link
+                    to="/auth/register"
+                    class="text-purple-400 hover:text-purple-300"
+                >
+                    {{
+                        $t(
+                            'auth.pages.login.page.form.register.link',
+                        )
+                    }}
+                </router-link>
+            </p>
+        </FormCard>
+    </Layout>
+</template>
