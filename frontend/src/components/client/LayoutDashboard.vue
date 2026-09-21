@@ -17,6 +17,7 @@ import { useSettingsStore } from '@/stores/settings';
 import Swal from 'sweetalert2';
 
 MythicalDash.download();
+
 // Check for refresh flag and refresh if needed
 const checkRefreshFlag = () => {
     const needsRefresh = localStorage.getItem('needs_refresh');
@@ -43,6 +44,11 @@ const isAdblockerEnabled = ref(false);
 const isAdblockerDetected = ref(false);
 const isBlockedByAdblocker = ref(false);
 const adblockerCheckCompleted = ref(false);
+
+// Tracks whether the current user's session data has actually loaded.
+// We keep the dashboard hidden until this is true so account/profile
+// components do not render with empty cached values.
+const sessionReady = ref(false);
 
 // Adblocker detection methods
 const detectAdblocker = () => {
@@ -129,25 +135,37 @@ const handleAdblockerDetected = () => {
     });
 };
 
-// Check for adblocker on mount
+if (!Session.isSessionValid()) {
+    router.push('/auth/login');
+}
+
+// Load the session BEFORE allowing the dashboard/profile UI to render.
+onMounted(async () => {
+    try {
+        await Session.startSession();
+
+        // Session.startSession() can handle some errors internally, so verify
+        // that real account data is available before rendering the dashboard.
+        sessionReady.value = Boolean(Session.getInfo('uuid'));
+
+        if (!sessionReady.value) {
+            const refreshed = await Session.refreshSession();
+            sessionReady.value = refreshed && Boolean(Session.getInfo('uuid'));
+        }
+    } catch (error) {
+        console.error('Session failed:', error);
+        sessionReady.value = false;
+    }
+});
+
+// Check for adblocker after the session has had a chance to load
 onMounted(() => {
-    // Delay adblocker detection to ensure page is fully loaded
     setTimeout(() => {
         if (!Session.hasPermission(Permissions.USER_PERMISSION_BYPASS_ADBLOCKER)) {
             detectAdblocker();
         }
     }, 1000);
 });
-
-if (!Session.isSessionValid()) {
-    router.push('/auth/login');
-}
-
-try {
-    Session.startSession();
-} catch (error) {
-    console.error('Session failed:', error);
-}
 
 // Account linking check function
 const checkAccountLinkingRequirements = () => {
@@ -197,12 +215,15 @@ const checkAccountLinkingRequirements = () => {
 
 // Computed property to check if session data is ready
 const isSessionReady = computed(() => {
+    // Depend on sessionReady so this recomputes when the async session finishes.
+    sessionReady.value;
+
     const uuid = Session.getInfo('uuid');
     const discordLinked = Session.getInfo('discord_linked');
     const githubLinked = Session.getInfo('github_linked');
 
     // Session is ready when we have basic user data and account linking status
-    return uuid && discordLinked !== null && githubLinked !== null;
+    return Boolean(uuid) && discordLinked !== null && githubLinked !== null;
 });
 
 // Watch for session readiness and trigger account linking check
@@ -323,11 +344,15 @@ onMounted(() => {
 
     fetchRoles();
 });
+
 const userBackground = ref('');
 
 // Watch for session changes and user data updates
 watch(
-    () => Session.getInfo('background'),
+    () => {
+        sessionReady.value;
+        return Session.getInfo('background');
+    },
     (newBackground) => {
         userBackground.value = newBackground || '';
     },
@@ -364,12 +389,18 @@ onUnmounted(() => {
     document.removeEventListener('keydown', handleKeydown);
     document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
+
 const isProfileEnabled = computed(() => {
     return Settings.getSetting('allow_public_profiles') === 'true';
 });
+
 // Computed properties
 const profileMenu = computed(() => {
+    // Depend on sessionReady so permissions/UUID are read after the session loads.
+    sessionReady.value;
+
     const menu = [{ name: t('components.profileDropdown.settings'), icon: SettingsIcon, href: '/account' }];
+
     if (isProfileEnabled.value) {
         menu.push({
             name: t('components.profileDropdown.profile'),
@@ -377,15 +408,25 @@ const profileMenu = computed(() => {
             href: `/profile/${Session.getInfo('uuid')}`,
         });
     }
+
     if (Session.hasPermission(Permissions.ADMIN_DASHBOARD_VIEW)) {
-        menu.splice(1, 0, { name: t('components.profileDropdown.adminArea'), icon: UsersIcon, href: '/mc-admin' });
+        menu.splice(1, 0, {
+            name: t('components.profileDropdown.adminArea'),
+            icon: UsersIcon,
+            href: '/mc-admin',
+        });
     }
+
     return menu;
 });
 
 const userInfo = computed(() => {
+    // Make this computed react when the async session load finishes.
+    sessionReady.value;
+
     const roleId = Number(Session.getInfo('role'));
     const roleInfo = getRoleInfo(roleId);
+
     return {
         firstName: Session.getInfo('first_name'),
         lastName: Session.getInfo('last_name'),
@@ -399,32 +440,45 @@ const userInfo = computed(() => {
 
 const reloadUserData = async () => {
     isReloading.value = true;
+    sessionReady.value = false;
 
     try {
         console.log('Reloading user data...');
 
-        await Session.cleanup();
+        Session.cleanup();
         await Session.startSession();
 
-        // The account linking check will be triggered by the watcher when session data is ready
+        sessionReady.value = Boolean(Session.getInfo('uuid'));
+
+        if (!sessionReady.value) {
+            const refreshed = await Session.refreshSession();
+            sessionReady.value = refreshed && Boolean(Session.getInfo('uuid'));
+        }
+
+        updateUserBackground();
+
         setTimeout(() => {
             isReloading.value = false;
         }, 3500);
 
-        router.go(0);
-
         console.log('User data reloaded successfully');
     } catch (error) {
         console.error('Failed to reload user data:', error);
+        sessionReady.value = false;
         isReloading.value = false;
     }
 };
 
 // Watch for session changes to check account linking requirements
 watch(
-    () => [Session.getInfo('discord_linked'), Session.getInfo('github_linked'), Session.getInfo('email_verified')],
     () => {
-        checkAccountLinkingRequirements();
+        sessionReady.value;
+        return [Session.getInfo('discord_linked'), Session.getInfo('github_linked'), Session.getInfo('email_verified')];
+    },
+    () => {
+        if (sessionReady.value) {
+            checkAccountLinkingRequirements();
+        }
     },
 );
 
@@ -445,6 +499,7 @@ const getRoleInfo = (roleId: number) => {
     return { name: 'User', color: '#9CA3AF' };
 };
 </script>
+
 <template>
     <div class="min-h-screen bg-[#030305] relative overflow-hidden" :style="pageBackgroundStyle">
         <!-- Background elements -->
@@ -463,7 +518,7 @@ const getRoleInfo = (roleId: number) => {
 
         <!-- Content wrapper -->
         <div class="relative z-10 min-h-screen">
-            <LoadingScreen v-if="loading" />
+            <LoadingScreen v-if="loading || !sessionReady" />
 
             <!-- Adblocker Blocking Overlay -->
             <div
@@ -504,7 +559,7 @@ const getRoleInfo = (roleId: number) => {
                 </div>
             </div>
 
-            <template v-if="!loading && !isBlockedByAdblocker">
+            <template v-if="!loading && sessionReady && !isBlockedByAdblocker">
                 <!-- Backdrop for mobile sidebar -->
                 <div
                     v-if="isSidebarOpen"
