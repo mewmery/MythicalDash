@@ -10,16 +10,23 @@ import successAlertSfx from '@/assets/sounds/success.mp3';
 import Swal from 'sweetalert2';
 import Turnstile from 'vue-turnstile';
 import { useSettingsStore } from '@/stores/settings';
+
 const Settings = useSettingsStore();
+
 import { useRouter } from 'vue-router';
 import VueQrcode from 'vue-qrcode';
 import Session from '@/mythicaldash/Session';
 import Auth from '@/mythicaldash/Auth';
 import { MythicalDOM } from '@/mythicaldash/MythicalDOM';
 
-const { play: playError } = useSound(failedAlertSfx);
-const { play: playSuccess } = useSound(successAlertSfx);
+const { play: playError } =
+    useSound(failedAlertSfx);
+
+const { play: playSuccess } =
+    useSound(successAlertSfx);
+
 const router = useRouter();
+
 const { t } = useI18n();
 
 if (!Session.isSessionValid()) {
@@ -29,38 +36,58 @@ if (!Session.isSessionValid()) {
 try {
     Session.startSession();
 } catch (error) {
-    console.error('Session failed:', error);
+    console.error(
+        'Session failed:',
+        error,
+    );
 }
 
-if (Session.getInfo('2fa_enabled') == 'true') {
+if (
+    Session.getInfo(
+        '2fa_enabled',
+    ) == 'true'
+) {
     router.push('/');
 }
 
 const loading = ref(false);
+
 const form = reactive({
     secret: '',
     code: '',
     turnstileResponse: '',
 });
+
 const turnstileKey = ref(0);
 
-MythicalDOM.setPageTitle(t('auth.pages.twofactor_setup.page.title'));
+MythicalDOM.setPageTitle(
+    t('auth.pages.twofactor_setup.page.title'),
+);
 
-function onDataUrlChange(dataUrl: string) {
+function onDataUrlChange(
+    dataUrl: string,
+) {
     console.log(dataUrl);
 }
 
 const fetchSecret = async () => {
     try {
         loading.value = true;
-        const data = await Auth.getTwoFactorSecret();
+
+        const data =
+            await Auth.getTwoFactorSecret();
+
         if (data.success) {
             form.secret = data.secret;
         } else {
             router.push('/');
         }
     } catch (error) {
-        console.error('Error fetching secret:', error);
+        console.error(
+            'Error fetching secret:',
+            error,
+        );
+
         router.push('/');
     } finally {
         loading.value = false;
@@ -70,39 +97,84 @@ const fetchSecret = async () => {
 const handleSubmit = async () => {
     if (!form.code) {
         playError();
+
         Swal.fire({
             icon: 'error',
-            title: t('auth.pages.twofactor_setup.alerts.missing_fields.title'),
-            text: t('auth.pages.twofactor_setup.alerts.missing_fields.text'),
+            title:
+                t(
+                    'auth.pages.twofactor_setup.alerts.missing_fields.title',
+                ),
+            text:
+                t(
+                    'auth.pages.twofactor_setup.alerts.missing_fields.text',
+                ),
         });
+
         return;
     }
 
     try {
         loading.value = true;
-        const response = await Auth.verifyTwoFactor(form.code, form.turnstileResponse);
+
+        const response =
+            await Auth.verifyTwoFactor(
+                form.code,
+                form.turnstileResponse,
+            );
+
         if (response.success) {
+            localStorage.setItem(
+                '2fa_enabled',
+                JSON.stringify('true'),
+            );
+
+            localStorage.setItem(
+                '2fa_blocked',
+                JSON.stringify('false'),
+            );
+
+            await Session.refreshSession();
+
             playSuccess();
+
             Swal.fire({
                 icon: 'success',
-                title: t('auth.pages.twofactor_setup.alerts.success.title'),
-                text: t('auth.pages.twofactor_setup.alerts.success.setup_success'),
+                title:
+                    t(
+                        'auth.pages.twofactor_setup.alerts.success.title',
+                    ),
+                text:
+                    t(
+                        'auth.pages.twofactor_setup.alerts.success.setup_success',
+                    ),
             }).then(() => {
                 router.push('/');
             });
         } else {
             playError();
+
             Swal.fire({
                 icon: 'error',
-                title: t('auth.pages.twofactor_setup.alerts.error.title'),
-                text: t('auth.pages.twofactor_setup.alerts.error.invalid_code'),
+                title:
+                    t(
+                        'auth.pages.twofactor_setup.alerts.error.title',
+                    ),
+                text:
+                    t(
+                        'auth.pages.twofactor_setup.alerts.error.invalid_code',
+                    ),
             });
         }
     } catch (error) {
         playError();
-        console.error('Error verifying code:', error);
+
+        console.error(
+            'Error verifying code:',
+            error,
+        );
     } finally {
         loading.value = false;
+
         turnstileKey.value++;
     }
 };
@@ -112,29 +184,59 @@ fetchSecret();
 
 <template>
     <Layout>
-        <FormCard :title="t('auth.pages.twofactor_setup.page.subTitle')" @submit="handleSubmit">
-            <div style="display: flex; justify-content: center; margin-bottom: 20px">
+        <FormCard
+            :title="t('auth.pages.twofactor_setup.page.subTitle')"
+            @submit="handleSubmit"
+        >
+            <div
+                style="
+                    display: flex;
+                    justify-content: center;
+                    margin-bottom: 20px;
+                "
+            >
                 <vue-qrcode
-                    :value="`otpauth://totp/NaysKutzu?secret=${form.secret}&issuer=${Settings.getSetting('app_name')}`"
+                    :value="`otpauth://totp/XalixCloud?secret=${form.secret}&issuer=${Settings.getSetting('app_name')}`"
                     type="image/png"
-                    :color="{ dark: '#000000', light: '#ffffff' }"
+                    :color="{
+                        dark: '#000000',
+                        light: '#ffffff',
+                    }"
                     @change="onDataUrlChange"
                 />
             </div>
+
             <FormInput
                 id="secret"
-                :label="$t('auth.pages.twofactor_setup.page.form.secret.label')"
+                :label="
+                    $t(
+                        'auth.pages.twofactor_setup.page.form.secret.label',
+                    )
+                "
                 v-model="form.secret"
                 type="text"
-                :placeholder="t('auth.pages.twofactor_setup.page.form.secret.placeholder')"
+                :placeholder="
+                    t(
+                        'auth.pages.twofactor_setup.page.form.secret.placeholder',
+                    )
+                "
                 locked
             />
+
             <FormInput
                 id="code"
-                :label="$t('auth.pages.twofactor_setup.page.form.code.label')"
+                :label="
+                    $t(
+                        'auth.pages.twofactor_setup.page.form.code.label',
+                    )
+                "
                 v-model="form.code"
                 type="number"
-                :placeholder="t('auth.pages.twofactor_setup.page.form.code.placeholder')"
+                :placeholder="
+                    t(
+                        'auth.pages.twofactor_setup.page.form.code.placeholder',
+                    )
+                "
                 required
                 :maxChar="6"
             />
@@ -146,19 +248,37 @@ fetchSecret();
             >
                 {{
                     loading
-                        ? t('auth.pages.twofactor_setup.page.form.setup_button.loading')
-                        : t('auth.pages.twofactor_setup.page.form.setup_button.label')
+                        ? t(
+                              'auth.pages.twofactor_setup.page.form.setup_button.loading',
+                          )
+                        : t(
+                              'auth.pages.twofactor_setup.page.form.setup_button.label',
+                          )
                 }}
             </button>
 
             <div
-                v-if="Settings.getSetting('turnstile_enabled') == 'true'"
-                style="display: flex; justify-content: center; margin-top: 20px"
+                v-if="
+                    Settings.getSetting(
+                        'turnstile_enabled',
+                    ) == 'true'
+                "
+                style="
+                    display: flex;
+                    justify-content: center;
+                    margin-top: 20px;
+                "
             >
                 <Turnstile
                     :key="turnstileKey"
-                    :site-key="Settings.getSetting('turnstile_key_pub')"
-                    v-model="form.turnstileResponse"
+                    :site-key="
+                        Settings.getSetting(
+                            'turnstile_key_pub',
+                        )
+                    "
+                    v-model="
+                        form.turnstileResponse
+                    "
                 />
             </div>
         </FormCard>
