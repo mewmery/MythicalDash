@@ -10,68 +10,133 @@ import successAlertSfx from '@/assets/sounds/success.mp3';
 import Swal from 'sweetalert2';
 import Turnstile from 'vue-turnstile';
 import { useSettingsStore } from '@/stores/settings';
+
 const Settings = useSettingsStore();
+
 import { useRouter } from 'vue-router';
 import Session from '@/mythicaldash/Session';
 import Auth from '@/mythicaldash/Auth';
 import { MythicalDOM } from '@/mythicaldash/MythicalDOM';
 
-const { play: playError } = useSound(failedAlertSfx);
-const { play: playSuccess } = useSound(successAlertSfx);
+const { play: playError } =
+    useSound(failedAlertSfx);
+
+const { play: playSuccess } =
+    useSound(successAlertSfx);
+
 const router = useRouter();
+
 const { t } = useI18n();
 
-if (Session.getInfo('2fa_enabled') == 'true' && Session.getInfo('2fa_blocked') == 'true') {
-    router.push('/');
-}
+/*
+ * Do not redirect away from the page based on cached
+ * two-factor state.
+ *
+ * The backend decides whether the submitted code is valid.
+ */
 
 const loading = ref(false);
+
 const form = reactive({
     code: '',
     turnstileResponse: '',
 });
+
 const turnstileKey = ref(0);
 
-MythicalDOM.setPageTitle(t('auth.pages.twofactor_verify.page.title'));
+MythicalDOM.setPageTitle(
+    t('auth.pages.twofactor_verify.page.title'),
+);
 
 const handleSubmit = async () => {
     if (!form.code) {
         playError();
+
         Swal.fire({
             icon: 'error',
-            title: t('auth.pages.twofactor_verify.alerts.missing_fields.title'),
-            text: t('auth.pages.twofactor_verify.alerts.missing_fields.text'),
+            title:
+                t(
+                    'auth.pages.twofactor_verify.alerts.missing_fields.title',
+                ),
+            text:
+                t(
+                    'auth.pages.twofactor_verify.alerts.missing_fields.text',
+                ),
         });
+
         return;
     }
 
     try {
         loading.value = true;
-        const response = await Auth.verifyTwoFactor(form.code, form.turnstileResponse);
+
+        const response =
+            await Auth.verifyTwoFactor(
+                form.code,
+                form.turnstileResponse,
+            );
+
         if (response.success) {
+            localStorage.setItem(
+                '2fa_enabled',
+                JSON.stringify('true'),
+            );
+
+            localStorage.setItem(
+                '2fa_blocked',
+                JSON.stringify('false'),
+            );
+
+            await Session.refreshSession();
+
             playSuccess();
+
             Swal.fire({
                 icon: 'success',
-                title: t('auth.pages.twofactor_verify.alerts.success.title'),
-                text: t('auth.pages.twofactor_verify.alerts.success.verify_success'),
+                title:
+                    t(
+                        'auth.pages.twofactor_verify.alerts.success.title',
+                    ),
+                text:
+                    t(
+                        'auth.pages.twofactor_verify.alerts.success.verify_success',
+                    ),
             }).then(() => {
                 router.push('/');
             });
         } else {
             playError();
+
             Swal.fire({
                 icon: 'error',
-                title: t('auth.pages.twofactor_verify.alerts.error.title'),
-                text: t('auth.pages.twofactor_verify.alerts.error.invalid_code'),
+                title:
+                    t(
+                        'auth.pages.twofactor_verify.alerts.error.title',
+                    ),
+                text:
+                    t(
+                        'auth.pages.twofactor_verify.alerts.error.invalid_code',
+                    ),
             });
         }
     } catch (error) {
         playError();
-        console.error('Error verifying code:', error);
+
+        console.error(
+            'Error verifying code:',
+            error,
+        );
+
         Swal.fire({
             icon: 'error',
-            title: t('auth.pages.twofactor_verify.alerts.error.title'),
-            text: t('auth.pages.twofactor_verify.alerts.error.generic'),
+            title:
+                t(
+                    'auth.pages.twofactor_verify.alerts.error.title',
+                ),
+            text:
+                t(
+                    'auth.pages.twofactor_verify.alerts.error.generic',
+                ),
         });
     } finally {
         loading.value = false;
@@ -82,13 +147,24 @@ const handleSubmit = async () => {
 
 <template>
     <Layout>
-        <FormCard :title="t('auth.pages.twofactor_verify.page.subTitle')" @submit="handleSubmit">
+        <FormCard
+            :title="t('auth.pages.twofactor_verify.page.subTitle')"
+            @submit="handleSubmit"
+        >
             <FormInput
                 id="code"
-                :label="$t('auth.pages.twofactor_verify.page.form.code.label')"
+                :label="
+                    $t(
+                        'auth.pages.twofactor_verify.page.form.code.label',
+                    )
+                "
                 v-model="form.code"
                 type="number"
-                :placeholder="t('auth.pages.twofactor_verify.page.form.code.placeholder')"
+                :placeholder="
+                    t(
+                        'auth.pages.twofactor_verify.page.form.code.placeholder',
+                    )
+                "
                 required
                 :maxChar="6"
             />
@@ -100,19 +176,37 @@ const handleSubmit = async () => {
             >
                 {{
                     loading
-                        ? t('auth.pages.twofactor_verify.page.form.verify_button.loading')
-                        : t('auth.pages.twofactor_verify.page.form.verify_button.label')
+                        ? t(
+                              'auth.pages.twofactor_verify.page.form.verify_button.loading',
+                          )
+                        : t(
+                              'auth.pages.twofactor_verify.page.form.verify_button.label',
+                          )
                 }}
             </button>
 
             <div
-                v-if="Settings.getSetting('turnstile_enabled') == 'true'"
-                style="display: flex; justify-content: center; margin-top: 20px"
+                v-if="
+                    Settings.getSetting(
+                        'turnstile_enabled',
+                    ) == 'true'
+                "
+                style="
+                    display: flex;
+                    justify-content: center;
+                    margin-top: 20px;
+                "
             >
                 <Turnstile
                     :key="turnstileKey"
-                    :site-key="Settings.getSetting('turnstile_key_pub')"
-                    v-model="form.turnstileResponse"
+                    :site-key="
+                        Settings.getSetting(
+                            'turnstile_key_pub',
+                        )
+                    "
+                    v-model="
+                        form.turnstileResponse
+                    "
                 />
             </div>
         </FormCard>
