@@ -43,10 +43,13 @@ $router->add('/api/user/auth/login', function (): void {
     $appInstance->allowOnlyPOST();
 
     if (!isset($_POST['login']) || $_POST['login'] == '') {
-        $eventManager->emit(AuthEvent::onAuthLoginFailed(), [
-            'login' => 'UNKNOWN',
-            'error_code' => 'MISSING_LOGIN',
-        ]);
+        $eventManager->emit(
+            AuthEvent::onAuthLoginFailed(),
+            [
+                'login' => 'UNKNOWN',
+                'error_code' => 'MISSING_LOGIN',
+            ]
+        );
 
         $appInstance->BadRequest(
             'Bad Request',
@@ -55,10 +58,13 @@ $router->add('/api/user/auth/login', function (): void {
     }
 
     if (!isset($_POST['password']) || $_POST['password'] == '') {
-        $eventManager->emit(AuthEvent::onAuthLoginFailed(), [
-            'login' => $_POST['login'],
-            'error_code' => 'MISSING_PASSWORD',
-        ]);
+        $eventManager->emit(
+            AuthEvent::onAuthLoginFailed(),
+            [
+                'login' => $_POST['login'],
+                'error_code' => 'MISSING_PASSWORD',
+            ]
+        );
 
         $appInstance->BadRequest(
             'Bad Request',
@@ -76,10 +82,13 @@ $router->add('/api/user/auth/login', function (): void {
             !isset($_POST['turnstileResponse']) ||
             $_POST['turnstileResponse'] == ''
         ) {
-            $eventManager->emit(AuthEvent::onAuthLoginFailed(), [
-                'login' => $_POST['login'],
-                'error_code' => 'TURNSTILE_FAILED',
-            ]);
+            $eventManager->emit(
+                AuthEvent::onAuthLoginFailed(),
+                [
+                    'login' => $_POST['login'],
+                    'error_code' => 'TURNSTILE_FAILED',
+                ]
+            );
 
             $appInstance->BadRequest(
                 'Bad Request',
@@ -89,18 +98,23 @@ $router->add('/api/user/auth/login', function (): void {
 
         $cfTurnstileResponse = $_POST['turnstileResponse'];
 
-        if (!Turnstile::validate(
-            $cfTurnstileResponse,
-            CloudFlareRealIP::getRealIP(),
-            $config->getDBSetting(
-                ConfigInterface::TURNSTILE_KEY_PRIV,
-                'XXXX'
+        if (
+            !Turnstile::validate(
+                $cfTurnstileResponse,
+                CloudFlareRealIP::getRealIP(),
+                $config->getDBSetting(
+                    ConfigInterface::TURNSTILE_KEY_PRIV,
+                    'XXXX'
+                )
             )
-        )) {
-            $eventManager->emit(AuthEvent::onAuthLoginFailed(), [
-                'login' => $_POST['login'],
-                'error_code' => 'TURNSTILE_FAILED',
-            ]);
+        ) {
+            $eventManager->emit(
+                AuthEvent::onAuthLoginFailed(),
+                [
+                    'login' => $_POST['login'],
+                    'error_code' => 'TURNSTILE_FAILED',
+                ]
+            );
 
             $appInstance->BadRequest(
                 'Invalid TurnStile Key',
@@ -117,13 +131,19 @@ $router->add('/api/user/auth/login', function (): void {
         CloudFlareRealIP::getRealIP()
     );
 
-    $loginResult = User::login($login, $password);
+    $loginResult = User::login(
+        $login,
+        $password
+    );
 
     if ($loginResult == 'false') {
-        $eventManager->emit(AuthEvent::onAuthLoginFailed(), [
-            'login' => $login,
-            'error_code' => 'INVALID_CREDENTIALS',
-        ]);
+        $eventManager->emit(
+            AuthEvent::onAuthLoginFailed(),
+            [
+                'login' => $login,
+                'error_code' => 'INVALID_CREDENTIALS',
+            ]
+        );
 
         $appInstance->BadRequest(
             'Invalid login credentials',
@@ -138,10 +158,13 @@ $router->add('/api/user/auth/login', function (): void {
             ''
         ) == ''
     ) {
-        $eventManager->emit(AuthEvent::onAuthLoginFailed(), [
-            'login' => $login,
-            'error_code' => 'PTERODACTYL_NOT_ENABLED',
-        ]);
+        $eventManager->emit(
+            AuthEvent::onAuthLoginFailed(),
+            [
+                'login' => $login,
+                'error_code' => 'PTERODACTYL_NOT_ENABLED',
+            ]
+        );
 
         $appInstance->BadRequest(
             'Pterodactyl is not enabled',
@@ -216,7 +239,8 @@ $router->add('/api/user/auth/login', function (): void {
         }
     } catch (\Exception $e) {
         $appInstance->getLogger()->error(
-            'Failed to get user info: ' . $e->getMessage()
+            'Failed to get user info: ' .
+            $e->getMessage()
         );
 
         $appInstance->InternalServerError(
@@ -226,8 +250,9 @@ $router->add('/api/user/auth/login', function (): void {
     }
 
     /*
-     * When setup mode is eventually disabled,
-     * automatically link a local-only account to Pterodactyl.
+     * Once setup mode is disabled, automatically
+     * connect the local XalixCloud owner account
+     * to Pterodactyl if it has no Pterodactyl ID.
      */
     if (
         !$setupMode &&
@@ -238,11 +263,21 @@ $router->add('/api/user/auth/login', function (): void {
         try {
             $newPterodactylUserId =
                 \MythicalDash\Hooks\Pterodactyl\Admin\User::performRegister(
-                    $userInfoArray[UserColumns::FIRST_NAME] ?? '',
-                    $userInfoArray[UserColumns::LAST_NAME] ?? '',
-                    $userInfoArray[UserColumns::USERNAME],
-                    $userInfoArray[UserColumns::EMAIL],
-                    $userInfoArray[UserColumns::PASSWORD] ?? ''
+                    $userInfoArray[
+                        UserColumns::FIRST_NAME
+                    ] ?? '',
+                    $userInfoArray[
+                        UserColumns::LAST_NAME
+                    ] ?? '',
+                    $userInfoArray[
+                        UserColumns::USERNAME
+                    ],
+                    $userInfoArray[
+                        UserColumns::EMAIL
+                    ],
+                    $userInfoArray[
+                        UserColumns::PASSWORD
+                    ] ?? ''
                 );
 
             if ($newPterodactylUserId <= 0) {
@@ -287,16 +322,24 @@ $router->add('/api/user/auth/login', function (): void {
         }
     }
 
+    /*
+     * Verification checks.
+     */
     if (
-        ($userInfoArray[UserColumns::VERIFIED] ?? 'false') == 'false' &&
+        ($userInfoArray[
+            UserColumns::VERIFIED
+        ] ?? 'false') == 'false' &&
         Mail::isEnabled()
     ) {
         User::logout();
 
-        $eventManager->emit(AuthEvent::onAuthLoginFailed(), [
-            'login' => $login,
-            'error_code' => 'ACCOUNT_NOT_VERIFIED',
-        ]);
+        $eventManager->emit(
+            AuthEvent::onAuthLoginFailed(),
+            [
+                'login' => $login,
+                'error_code' => 'ACCOUNT_NOT_VERIFIED',
+            ]
+        );
 
         $appInstance->BadRequest(
             'Account not verified',
@@ -305,14 +348,19 @@ $router->add('/api/user/auth/login', function (): void {
     }
 
     if (
-        ($userInfoArray[UserColumns::BANNED] ?? 'NO') !== 'NO'
+        ($userInfoArray[
+            UserColumns::BANNED
+        ] ?? 'NO') !== 'NO'
     ) {
         User::logout();
 
-        $eventManager->emit(AuthEvent::onAuthLoginFailed(), [
-            'login' => $login,
-            'error_code' => 'ACCOUNT_BANNED',
-        ]);
+        $eventManager->emit(
+            AuthEvent::onAuthLoginFailed(),
+            [
+                'login' => $login,
+                'error_code' => 'ACCOUNT_BANNED',
+            ]
+        );
 
         $appInstance->BadRequest(
             'Account is banned',
@@ -321,14 +369,19 @@ $router->add('/api/user/auth/login', function (): void {
     }
 
     if (
-        ($userInfoArray[UserColumns::DELETED] ?? 'false') == 'true'
+        ($userInfoArray[
+            UserColumns::DELETED
+        ] ?? 'false') == 'true'
     ) {
         User::logout();
 
-        $eventManager->emit(AuthEvent::onAuthLoginFailed(), [
-            'login' => $login,
-            'error_code' => 'ACCOUNT_DELETED',
-        ]);
+        $eventManager->emit(
+            AuthEvent::onAuthLoginFailed(),
+            [
+                'login' => $login,
+                'error_code' => 'ACCOUNT_DELETED',
+            ]
+        );
 
         $appInstance->BadRequest(
             'Account is deleted',
@@ -336,11 +389,17 @@ $router->add('/api/user/auth/login', function (): void {
         );
     }
 
-    if (
-        ($userInfoArray[
-            UserColumns::TWO_FA_ENABLED
-        ] ?? 'false') == 'true'
-    ) {
+    /*
+     * Determine whether this login requires 2FA.
+     */
+    $requiresTwoFactor =
+        (
+            $userInfoArray[
+                UserColumns::TWO_FA_ENABLED
+            ] ?? 'false'
+        ) === 'true';
+
+    if ($requiresTwoFactor) {
         User::updateInfo(
             $loginResult,
             UserColumns::TWO_FA_BLOCKED,
@@ -349,6 +408,11 @@ $router->add('/api/user/auth/login', function (): void {
         );
     }
 
+    /*
+     * Set the session cookie BEFORE returning the
+     * 2FA-required response, because the verification
+     * endpoint needs this token.
+     */
     if (APP_DEBUG) {
         setcookie(
             'user_token',
@@ -365,14 +429,45 @@ $router->add('/api/user/auth/login', function (): void {
         );
     }
 
+    /*
+     * Password was correct, but do NOT enter the
+     * dashboard yet if 2FA is enabled.
+     */
+    if ($requiresTwoFactor) {
+        $eventManager->emit(
+            AuthEvent::onAuthLoginSuccess(),
+            [
+                'login' =>
+                    $userInfoArray[
+                        UserColumns::EMAIL
+                    ],
+            ]
+        );
+
+        $appInstance->OK(
+            'Two-factor authentication required',
+            [
+                'requires_2fa' => true,
+            ]
+        );
+    }
+
+    /*
+     * Pterodactyl login/server syncing only runs
+     * outside temporary Xalix setup mode.
+     */
     if (!$setupMode) {
         try {
             \MythicalDash\Hooks\Pterodactyl\Admin\User::performLogin(
                 $userInfoArray[
                     UserColumns::PTERODACTYL_USER_ID
                 ],
-                $userInfoArray[UserColumns::EMAIL],
-                $userInfoArray[UserColumns::USERNAME],
+                $userInfoArray[
+                    UserColumns::EMAIL
+                ],
+                $userInfoArray[
+                    UserColumns::USERNAME
+                ],
                 $userInfoArray[
                     UserColumns::FIRST_NAME
                 ] ?? '',
@@ -415,7 +510,9 @@ $router->add('/api/user/auth/login', function (): void {
                     Server::create(
                         $pterodactylServer['id'],
                         null,
-                        $userInfoArray[UserColumns::UUID]
+                        $userInfoArray[
+                            UserColumns::UUID
+                        ]
                     );
                 }
             }
@@ -436,8 +533,13 @@ $router->add('/api/user/auth/login', function (): void {
         );
     }
 
-    $userUuid = $userInfoArray[UserColumns::UUID];
-    $currentIP = CloudFlareRealIP::getRealIP();
+    $userUuid =
+        $userInfoArray[
+            UserColumns::UUID
+        ];
+
+    $currentIP =
+        CloudFlareRealIP::getRealIP();
 
     $hasAltBypassPermission =
         PermissionUtils::userHasPermission(
@@ -464,7 +566,11 @@ $router->add('/api/user/auth/login', function (): void {
                 $userUuid
             );
 
-        if ($multipleAccounts['has_multiple_accounts']) {
+        if (
+            $multipleAccounts[
+                'has_multiple_accounts'
+            ]
+        ) {
             try {
                 User::updateInfo(
                     $loginResult,
@@ -475,7 +581,8 @@ $router->add('/api/user/auth/login', function (): void {
                 );
 
                 $processedUsers[] = [
-                    'uuid' => $userUuid,
+                    'uuid' =>
+                        $userUuid,
                     'username' =>
                         $userInfoArray[
                             UserColumns::USERNAME
@@ -486,20 +593,25 @@ $router->add('/api/user/auth/login', function (): void {
                         ],
                 ];
             } catch (\Exception $e) {
-                $appInstance->getLogger()->error(
-                    'Failed to ban current user: ' .
-                    $e->getMessage()
-                );
+                $appInstance
+                    ->getLogger()
+                    ->error(
+                        'Failed to ban current user: ' .
+                        $e->getMessage()
+                    );
             }
 
             foreach (
-                $multipleAccounts['relationships']
+                $multipleAccounts[
+                    'relationships'
+                ]
                 as $relationship
             ) {
                 try {
-                    $token = User::getTokenFromUUID(
-                        $relationship['user']
-                    );
+                    $token =
+                        User::getTokenFromUUID(
+                            $relationship['user']
+                        );
 
                     $relatedUserInfo =
                         User::getInfoArray(
@@ -508,7 +620,9 @@ $router->add('/api/user/auth/login', function (): void {
                                 UserColumns::USERNAME,
                                 UserColumns::AVATAR,
                             ],
-                            [UserColumns::PASSWORD]
+                            [
+                                UserColumns::PASSWORD,
+                            ]
                         );
 
                     User::updateInfo(
@@ -520,7 +634,8 @@ $router->add('/api/user/auth/login', function (): void {
                     );
 
                     $processedUsers[] = [
-                        'uuid' => $relationship['user'],
+                        'uuid' =>
+                            $relationship['user'],
                         'username' =>
                             $relatedUserInfo[
                                 UserColumns::USERNAME
@@ -531,10 +646,12 @@ $router->add('/api/user/auth/login', function (): void {
                             ],
                     ];
                 } catch (\Exception $e) {
-                    $appInstance->getLogger()->error(
-                        'Failed to ban related user: ' .
-                        $e->getMessage()
-                    );
+                    $appInstance
+                        ->getLogger()
+                        ->error(
+                            'Failed to ban related user: ' .
+                            $e->getMessage()
+                        );
                 }
             }
         }
@@ -545,13 +662,17 @@ $router->add('/api/user/auth/login', function (): void {
                 [
                     'error_code' =>
                         'MULTIPLE_ACCOUNTS',
-                    'info' => $processedUsers,
+                    'info' =>
+                        $processedUsers,
                 ]
             );
         }
     }
 
-    $login = $userInfoArray[UserColumns::EMAIL];
+    $login =
+        $userInfoArray[
+            UserColumns::EMAIL
+        ];
 
     if (
         $config->getDBSetting(
@@ -579,11 +700,15 @@ $router->add('/api/user/auth/login', function (): void {
 
     $eventManager->emit(
         AuthEvent::onAuthLoginSuccess(),
-        ['login' => $login]
+        [
+            'login' => $login,
+        ]
     );
 
     $appInstance->OK(
         'Successfully logged in',
-        []
+        [
+            'requires_2fa' => false,
+        ]
     );
 });
