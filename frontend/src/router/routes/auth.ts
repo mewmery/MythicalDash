@@ -55,8 +55,7 @@ const authRoutes: RouteRecordRaw[] = [
         name: 'Two Factor Verify',
         component: () => import('@/views/client/auth/TwoFactorVerify.vue'),
         meta: {
-            requiresAuth: false,
-            isAuthPage: true,
+            requiresAuth: true,
         },
     },
     {
