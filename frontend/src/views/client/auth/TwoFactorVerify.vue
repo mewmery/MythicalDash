@@ -10,30 +10,18 @@ import successAlertSfx from '@/assets/sounds/success.mp3';
 import Swal from 'sweetalert2';
 import Turnstile from 'vue-turnstile';
 import { useSettingsStore } from '@/stores/settings';
-
-const Settings = useSettingsStore();
-
 import { useRouter } from 'vue-router';
 import Session from '@/mythicaldash/Session';
 import Auth from '@/mythicaldash/Auth';
 import { MythicalDOM } from '@/mythicaldash/MythicalDOM';
 
-const { play: playError } =
-    useSound(failedAlertSfx);
+const Settings = useSettingsStore();
 
-const { play: playSuccess } =
-    useSound(successAlertSfx);
+const { play: playError } = useSound(failedAlertSfx);
+const { play: playSuccess } = useSound(successAlertSfx);
 
 const router = useRouter();
-
 const { t } = useI18n();
-
-/*
- * Do not redirect away from the page based on cached
- * two-factor state.
- *
- * The backend decides whether the submitted code is valid.
- */
 
 const loading = ref(false);
 
@@ -49,7 +37,9 @@ MythicalDOM.setPageTitle(
 );
 
 const handleSubmit = async () => {
-    if (!form.code) {
+    const code = form.code.replace(/\D/g, '');
+
+    if (code.length !== 6) {
         playError();
 
         Swal.fire({
@@ -58,10 +48,7 @@ const handleSubmit = async () => {
                 t(
                     'auth.pages.twofactor_verify.alerts.missing_fields.title',
                 ),
-            text:
-                t(
-                    'auth.pages.twofactor_verify.alerts.missing_fields.text',
-                ),
+            text: 'Enter the 6-digit code from your authenticator app.',
         });
 
         return;
@@ -72,39 +59,11 @@ const handleSubmit = async () => {
 
         const response =
             await Auth.verifyTwoFactor(
-                form.code,
+                code,
                 form.turnstileResponse,
             );
 
-        if (response.success) {
-            localStorage.setItem(
-                '2fa_enabled',
-                JSON.stringify('true'),
-            );
-
-            localStorage.setItem(
-                '2fa_blocked',
-                JSON.stringify('false'),
-            );
-
-            await Session.refreshSession();
-
-            playSuccess();
-
-            Swal.fire({
-                icon: 'success',
-                title:
-                    t(
-                        'auth.pages.twofactor_verify.alerts.success.title',
-                    ),
-                text:
-                    t(
-                        'auth.pages.twofactor_verify.alerts.success.verify_success',
-                    ),
-            }).then(() => {
-                router.push('/');
-            });
-        } else {
+        if (!response.success) {
             playError();
 
             Swal.fire({
@@ -114,16 +73,44 @@ const handleSubmit = async () => {
                         'auth.pages.twofactor_verify.alerts.error.title',
                     ),
                 text:
-                    t(
-                        'auth.pages.twofactor_verify.alerts.error.invalid_code',
-                    ),
+                    response.error_code === 'INVALID_CODE'
+                        ? 'That authenticator code is not valid. Wait for the next code and try again.'
+                        : response.message ||
+                          'Two-factor verification failed.',
             });
+
+            return;
         }
+
+        localStorage.setItem(
+            '2fa_enabled',
+            JSON.stringify('true'),
+        );
+
+        localStorage.setItem(
+            '2fa_blocked',
+            JSON.stringify('false'),
+        );
+
+        await Session.refreshSession();
+
+        playSuccess();
+
+        await Swal.fire({
+            icon: 'success',
+            title:
+                t(
+                    'auth.pages.twofactor_verify.alerts.success.title',
+                ),
+            text: 'Two-factor authentication verified.',
+        });
+
+        router.push('/');
     } catch (error) {
         playError();
 
         console.error(
-            'Error verifying code:',
+            'Error verifying 2FA code:',
             error,
         );
 
@@ -133,10 +120,7 @@ const handleSubmit = async () => {
                 t(
                     'auth.pages.twofactor_verify.alerts.error.title',
                 ),
-            text:
-                t(
-                    'auth.pages.twofactor_verify.alerts.error.generic',
-                ),
+            text: 'Two-factor verification failed.',
         });
     } finally {
         loading.value = false;
@@ -159,12 +143,8 @@ const handleSubmit = async () => {
                     )
                 "
                 v-model="form.code"
-                type="number"
-                :placeholder="
-                    t(
-                        'auth.pages.twofactor_verify.page.form.code.placeholder',
-                    )
-                "
+                type="text"
+                placeholder="123456"
                 required
                 :maxChar="6"
             />
@@ -189,7 +169,7 @@ const handleSubmit = async () => {
                 v-if="
                     Settings.getSetting(
                         'turnstile_enabled',
-                    ) == 'true'
+                    ) === 'true'
                 "
                 style="
                     display: flex;
