@@ -22,14 +22,6 @@ use MythicalDash\Plugins\Events\Events\AuthEvent;
 use MythicalDash\Chat\interface\UserActivitiesTypes;
 use MythicalDash\Hooks\MythicalSystems\CloudFlare\Turnstile;
 
-/*
- * Start or resume 2FA setup.
- *
- * IMPORTANT:
- * Do NOT generate a new secret every time this endpoint is opened.
- * If a setup secret already exists, reuse it so refreshing the setup page
- * cannot invalidate the QR code already scanned by the user.
- */
 $router->get('/api/user/auth/2fa/setup', function (): void {
     App::init();
 
@@ -45,13 +37,16 @@ $router->get('/api/user/auth/2fa/setup', function (): void {
         );
     }
 
-    /*
-     * Read the raw value first. If it is NULL/empty, do not try to decrypt it.
-     */
-    $storedSecretRaw = $session->getInfo(UserColumns::TWO_FA_KEY, false);
+    $storedSecretRaw = $session->getInfo(
+        UserColumns::TWO_FA_KEY,
+        false
+    );
 
     if ($storedSecretRaw !== '') {
-        $secret = $session->getInfo(UserColumns::TWO_FA_KEY, true);
+        $secret = $session->getInfo(
+            UserColumns::TWO_FA_KEY,
+            true
+        );
     } else {
         $google2fa = new Google2FA();
         $secret = $google2fa->generateSecretKey();
@@ -65,19 +60,10 @@ $router->get('/api/user/auth/2fa/setup', function (): void {
 
     $appInstance->OK(
         'Two-factor setup ready',
-        [
-            'secret' => $secret,
-        ]
+        ['secret' => $secret]
     );
 });
 
-/*
- * Verify either:
- *  - the first code during 2FA setup, or
- *  - a login-time 2FA challenge.
- *
- * Both use the same stored secret.
- */
 $router->post('/api/user/auth/2fa/setup', function (): void {
     global $eventManager;
 
@@ -88,8 +74,37 @@ $router->post('/api/user/auth/2fa/setup', function (): void {
     $appInstance->allowOnlyPOST();
 
     /*
-     * Process Turnstile only when enabled.
+     * IMPORTANT:
+     * Do not create a Session here.
+     *
+     * Session rejects users while 2fa_blocked=true. That is correct for
+     * normal authenticated endpoints, but this endpoint is the one that
+     * must accept the TOTP code and clear 2fa_blocked.
      */
+    if (
+        !isset($_COOKIE['user_token']) ||
+        $_COOKIE['user_token'] === ''
+    ) {
+        $appInstance->Unauthorized(
+            'Please tell me who you are.',
+            ['error_code' => 'MISSING_ACCOUNT_TOKEN']
+        );
+    }
+
+    $token = (string) $_COOKIE['user_token'];
+
+    if (
+        !User::exists(
+            UserColumns::ACCOUNT_TOKEN,
+            $token
+        )
+    ) {
+        $appInstance->Unauthorized(
+            'Login info provided are invalid!',
+            ['error_code' => 'INVALID_ACCOUNT_TOKEN']
+        );
+    }
+
     if (
         $config->getDBSetting(
             ConfigInterface::TURNSTILE_ENABLED,
@@ -155,15 +170,11 @@ $router->post('/api/user/auth/2fa/setup', function (): void {
         );
     }
 
-    $session = new Session($appInstance);
-
-    /*
-     * Check the raw DB value before decrypting it.
-     */
-    $storedSecretRaw = $session->getInfo(
+    $storedSecretRaw = User::getInfo(
+        $token,
         UserColumns::TWO_FA_KEY,
         false
-    );
+    ) ?? '';
 
     if ($storedSecretRaw === '') {
         $eventManager->emit(
@@ -177,21 +188,34 @@ $router->post('/api/user/auth/2fa/setup', function (): void {
         );
     }
 
-    $secret = $session->getInfo(
+    $secret = User::getInfo(
+        $token,
         UserColumns::TWO_FA_KEY,
         true
-    );
+    ) ?? '';
 
-    /*
-     * Keep only digits and preserve leading zeroes.
-     */
+    if ($secret === '') {
+        $eventManager->emit(
+            AuthEvent::onAuth2FAVerifyFailed(),
+            ['error_code' => 'TWO_FA_NOT_INITIALIZED']
+        );
+
+        $appInstance->BadRequest(
+            'Two-factor authentication has not been initialized',
+            ['error_code' => 'TWO_FA_NOT_INITIALIZED']
+        );
+    }
+
     $code = preg_replace(
         '/\D/',
         '',
         (string) $_POST['code']
     );
 
-    if (strlen($code) !== 6) {
+    if (
+        $code === null ||
+        strlen($code) !== 6
+    ) {
         $eventManager->emit(
             AuthEvent::onAuth2FAVerifyFailed(),
             ['error_code' => 'INVALID_CODE']
@@ -205,10 +229,6 @@ $router->post('/api/user/auth/2fa/setup', function (): void {
 
     $google2fa = new Google2FA();
 
-    /*
-     * Window 1 accepts the previous/current/next 30-second TOTP window.
-     * This avoids tiny clock-skew failures without weakening the flow much.
-     */
     $valid = $google2fa->verifyKey(
         $secret,
         $code,
@@ -227,17 +247,15 @@ $router->post('/api/user/auth/2fa/setup', function (): void {
         );
     }
 
-    /*
-     * A successful verification both enables 2FA (during setup)
-     * and releases a login-time 2FA block.
-     */
-    $session->setInfo(
+    User::updateInfo(
+        $token,
         UserColumns::TWO_FA_ENABLED,
         'true',
         false
     );
 
-    $session->setInfo(
+    User::updateInfo(
+        $token,
         UserColumns::TWO_FA_BLOCKED,
         'false',
         false
@@ -248,26 +266,29 @@ $router->post('/api/user/auth/2fa/setup', function (): void {
         []
     );
 
-    UserActivities::add(
-        $session->getInfo(
-            UserColumns::UUID,
-            false
-        ),
-        UserActivitiesTypes::$two_factor_verify,
-        CloudFlareRealIP::getRealIP()
-    );
+    $uuid = User::getInfo(
+        $token,
+        UserColumns::UUID,
+        false
+    ) ?? '';
+
+    if ($uuid !== '') {
+        UserActivities::add(
+            $uuid,
+            UserActivitiesTypes::$two_factor_verify,
+            CloudFlareRealIP::getRealIP()
+        );
+    }
 
     $appInstance->OK(
         'Two-factor authentication verified',
         [
             'two_factor_enabled' => true,
+            'two_factor_blocked' => false,
         ]
     );
 });
 
-/*
- * Disable 2FA.
- */
 $router->get('/api/auth/2fa/setup/kill', function (): void {
     App::init();
 
@@ -288,10 +309,6 @@ $router->get('/api/auth/2fa/setup/kill', function (): void {
         false
     );
 
-    /*
-     * The 2FA key is normally encrypted, so clear it using the
-     * encrypted path as well.
-     */
     $session->setInfo(
         UserColumns::TWO_FA_KEY,
         '',
