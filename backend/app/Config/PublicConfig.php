@@ -82,8 +82,9 @@ class PublicConfig extends ConfigFactory
             ConfigInterface::PTERODACTYL_BASE_URL => 'https://demopanel.mythical.systems',
 
             // AFK Settings
+            // XalixCloud economy: 1 coin every 60 minutes.
             ConfigInterface::AFK_ENABLED => 'true',
-            ConfigInterface::AFK_MIN_PER_COIN => '1',
+            ConfigInterface::AFK_MIN_PER_COIN => '60',
 
             // Feature toggles
             ConfigInterface::CODE_REDEMPTION_ENABLED => 'true',
@@ -129,15 +130,15 @@ class PublicConfig extends ConfigFactory
             ConfigInterface::L4R_GYANILINKS_TIME_TO_EXPIRE => '3600',
             ConfigInterface::L4R_GYANILINKS_COOLDOWN_TIME => '3600',
 
-            // Store settings
-            ConfigInterface::STORE_ENABLED => 'false',
-            ConfigInterface::STORE_RAM_PRICE => '100',
-            ConfigInterface::STORE_DISK_PRICE => '100',
-            ConfigInterface::STORE_CPU_PRICE => '100',
-            ConfigInterface::STORE_PORTS_PRICE => '100',
-            ConfigInterface::STORE_DATABASES_PRICE => '100',
-            ConfigInterface::STORE_BACKUPS_PRICE => '100',
-            ConfigInterface::STORE_SERVER_SLOT_PRICE => '100',
+            // Store settings - XalixCloud economy
+            ConfigInterface::STORE_ENABLED => 'true',
+            ConfigInterface::STORE_RAM_PRICE => '20',
+            ConfigInterface::STORE_DISK_PRICE => '15',
+            ConfigInterface::STORE_CPU_PRICE => '15',
+            ConfigInterface::STORE_PORTS_PRICE => '10',
+            ConfigInterface::STORE_DATABASES_PRICE => '15',
+            ConfigInterface::STORE_BACKUPS_PRICE => '10',
+            ConfigInterface::STORE_SERVER_SLOT_PRICE => '75',
 
             // Email settings
             ConfigInterface::SMTP_ENABLED => 'false',
@@ -298,11 +299,12 @@ class PublicConfig extends ConfigFactory
             // Default BG
             ConfigInterface::DEFAULT_BG => 'https://cdn.mythical.systems/mc.jpg',
 
-            // Store
+            // Store quantities
+            // 1024 MB = 1 GB
             ConfigInterface::STORE_RAM_QUANTITY => '1024',
             ConfigInterface::STORE_DISK_QUANTITY => '1024',
             ConfigInterface::STORE_CPU_QUANTITY => '100',
-            ConfigInterface::STORE_ALLOCATION_QUANTITY => '2',
+            ConfigInterface::STORE_ALLOCATION_QUANTITY => '1',
             ConfigInterface::STORE_DATABASES_QUANTITY => '1',
             ConfigInterface::STORE_SERVER_SLOT_QUANTITY => '1',
             ConfigInterface::STORE_BACKUPS_QUANTITY => '1',
